@@ -1,0 +1,12 @@
+# 语音转写 + 说话人分离 服务端依赖
+# 安装（GPU 版 torch 请按 CUDA 版本选择 index-url）：
+#   pip install torch --index-url https://download.pytorch.org/whl/cu128
+#   pip install -r requirements.txt
+torch>=2.0            # GPU 版请从 pytorch 官方 cuXXX 源安装
+funasr>=1.1.0         # ASR/VAD/标点/说话人(CAM++) 流水线
+modelscope>=1.9.0     # 模型下载（hub=modelscope）
+soundfile>=0.12       # 音频读写（分片截取）
+numpy
+scikit-learn>=1.3     # 跨分片说话人质心聚类
+flask>=3.0            # Web/API 服务
+requests>=2.28        # webhook 回调

@@ -1,0 +1,53 @@
+/* ================= 设计令牌（移植自概念图 v3） ================= */
+:root {
+  /* 色彩 */
+  --primary: #2b5cff;
+  --primary-600: #1a44d6;
+  --primary-50: #eef3ff;
+  --ink-900: #151a26;
+  --ink-700: #38405a;
+  --ink-500: #6b7488;
+  --ink-400: #98a0b3;
+  --line: #e7eaf1;
+  --bg: #f5f6fa;
+  --green: #0f9d6b;
+  --green-50: #e7f6f0;
+  --orange: #d97a06;
+  --orange-50: #fdf3e4;
+  --red: #e0342b;
+  --red-50: #fdecea;
+  --purple: #6d4aff;
+  --purple-50: #f1edff;
+  --spk1: #2b5cff;
+  --spk2: #e0399b;
+  --spk3: #0f9d6b;
+
+  /* 字体 */
+  --fs-11: 11px;
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-16: 16px;
+  --fs-20: 20px;
+  --fs-24: 24px;
+
+  /* 形状与阴影 */
+  --r-8: 8px;
+  --r-12: 12px;
+  --r-16: 16px;
+  --r-full: 999px;
+  --sh-1: 0 1px 2px rgba(21, 26, 38, 0.05);
+  --sh-2: 0 6px 24px rgba(21, 26, 38, 0.1);
+  --sh-3: 0 16px 48px rgba(21, 26, 38, 0.16);
+
+  /* 动效 */
+  --t-fast: 120ms;
+  --t-base: 200ms;
+  --t-slow: 320ms;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* 布局 */
+  --side-w: 208px;
+  --topbar-h: 46px;
+  --ai-w: 320px;
+}

@@ -1,0 +1,27 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ---- 运行时数据（录音 / 转写 / 数据库 / 日志），绝不入库 ----
+backend/data/
+*.log
+*.db
+*.db-wal
+*.db-shm
+
+# ---- Node / 前端构建 ----
+node_modules/
+dist/
+*.tsbuildinfo
+
+# ---- 本地测试音频与数据集 ----
+test-audio/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
