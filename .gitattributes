@@ -1,0 +1,23 @@
+# 统一换行符：仓库内一律 LF，避免跨平台协作出现 ^M / bash 脚本失效
+* text=auto
+
+*.py   text eol=lf
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.js   text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.html text eol=lf
+*.css  text eol=lf
+*.sh   text eol=lf
+*.txt  text eol=lf
+
+# Windows 脚本保持 CRLF
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# 二进制文件不做任何转换
+*.png binary
+*.wav binary
+*.mp3 binary
+*.db  binary
