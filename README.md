@@ -83,7 +83,6 @@ meetscribe/
 │   └── tools/               # 离线评测与数据集工具（见 tools/README.md）
 ├── web/                     # React + Vite 前端
 │   └── src/                 # pages / components / i18n / api
-├── docs/design/             # 设计概念图（HTML）
 ├── LICENSE                  # Apache-2.0
 └── README.md
 ```
