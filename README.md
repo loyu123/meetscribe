@@ -22,24 +22,48 @@
 
 ## 系统架构
 
-```
-┌─────────────────────────── 浏览器（web/，React + Vite）───────────────────────────┐
-│  工作台 · 新建任务 · 任务进度 · 会议详情 · 语义搜索 · 质量中心 · 设置（i18n 双语） │
-└────────────────────────────────────┬─────────────────────────────────────────────┘
-                                     │ /api/v1（dev 由 vite 代理，生产反代）
-┌────────────────────────────────────▼─────────────────────────────────────────────┐
-│                       后端（backend/，Flask + SQLite，端口 5000）                 │
-│  上传/任务 API ──▶ worker 队列 ──▶ FunASR 推理池（本地 GPU/CPU）                   │
-│  ├── engine.py    转写 + VAD + 标点 + 说话人聚类                                   │
-│  ├── store.py     SQLite（WAL）：录音/任务/分片/转写/纪要                          │
-│  ├── summary/ask/rewrite/polish  纪要 · 问答 · 润色                                │
-│  └── search.py    混合检索（向量 + BM25 + rerank）                                 │
-└──────────────────────┬───────────────────────────────────────────────────────────┘
-                       │ OpenAI 兼容 HTTP（地址/密钥可在界面设置）
-              ┌────────▼─────────┐
-              │  AI 模型网关      │  chat(LLM) / embeddings / rerank
-              │  本地自部署或云API │  如 Xinference + bge-m3 / bge-reranker / Qwen
-              └──────────────────┘
+> 🎙️ 语音转写**完全本地运行**，音频不出本机；纪要 / 问答 / 检索等文本 AI 走可配置的 OpenAI 兼容网关。
+
+```mermaid
+flowchart TB
+    subgraph BROWSER["🖥️ 浏览器 — web/（React + Vite）"]
+        UI["工作台 · 新建任务 · 任务进度 · 会议详情<br/>语义搜索 · 质量中心 · 设置（🌐 中英双语）"]
+    end
+
+    subgraph SERVER["⚙️ 后端 — backend/（Flask + SQLite · 端口 5000）"]
+        direction TB
+        API["🚪 REST API /api/v1<br/>分片上传 · 任务管理 · 录音 · 纪要"]
+        QUEUE["📥 Worker 任务队列<br/>分片级重试 · 失败自动切分兜底"]
+        INFER["🎙️ FunASR 推理池（本地 GPU/CPU）<br/>Paraformer / SenseVoice + CAM++"]
+        DB[("🗄️ SQLite（WAL）<br/>录音 · 任务 · 逐句转写 · 纪要")]
+        AI["📝 文本 AI<br/>纪要生成 · AI 问答 · 润色"]
+        SEARCH["🔎 混合检索<br/>向量召回 + BM25 + 精排"]
+    end
+
+    subgraph GATEWAY["☁️ AI 模型网关 — OpenAI 兼容 · 地址/密钥可在界面配置"]
+        direction LR
+        LLM["💬 chat（LLM）<br/>如 Qwen / DeepSeek"]
+        EMB["🧲 embeddings<br/>如 bge-m3"]
+        RER["🏁 rerank<br/>如 bge-reranker"]
+    end
+
+    UI -- "/api/v1<br/>(dev: vite 代理 · 生产: 反向代理)" --> API
+    API --> QUEUE --> INFER
+    INFER -- "转写 + 说话人落库" --> DB
+    API <--> DB
+    AI --> LLM
+    SEARCH --> EMB
+    SEARCH --> RER
+
+    classDef browser fill:#eef3ff,stroke:#2b5cff,stroke-width:2px,color:#151a26
+    classDef backend fill:#e7f6f0,stroke:#0f9d6b,stroke-width:2px,color:#151a26
+    classDef data fill:#fdf3e4,stroke:#d97a06,stroke-width:2px,color:#151a26
+    classDef cloud fill:#f3e8ff,stroke:#7c3aed,stroke-width:2px,color:#151a26
+
+    class BROWSER browser
+    class API,QUEUE,INFER,AI,SEARCH backend
+    class DB data
+    class GATEWAY,LLM,EMB,RER cloud
 ```
 
 ## 目录结构
