@@ -20,8 +20,8 @@ Upload long recordings (up to 4 GB, auto-chunked) and get timestamped, speaker-l
 - **AI minutes** — Built-in *Meeting* and *Personal memo* templates, plus custom templates. Long meetings use *global outline → chunk summaries → merge*. Each bullet carries speaker and `[mm:ss]` for jump-to-audio. No content is invented beyond the transcript.
 - **AI Q&A** — Ask over the current meeting (or selected transcript); answers cite original lines with timestamps.
 - **Semantic search** — Hybrid retrieval: embedding recall + BM25 (Chinese bigrams) + rerank. Async background indexing with one-click rebuild. Filters: date, speaker, folder. Results grouped by meeting.
-- **Export** — SRT / VTT subtitles, timestamped plain-text transcript, Markdown minutes (falls back to full transcript if no summary yet).
-- **Ops metrics** — Job/chunk timing, queue depth, recent failures via `GET /api/v1/system/metrics` (admin).
+- **Export** — SRT / VTT subtitles, timestamped plain-text transcript, Markdown minutes, Word (.docx) minutes + full transcript (falls back to transcript if no summary yet).
+- **Ops metrics** — Job/chunk timing, queue depth, recent failures via `GET /api/v1/system/metrics` (admin); Prometheus exposition at `GET /api/v1/system/metrics.txt`.
 - **Library management** — Folders, batch move/delete, 7-day trash with restore.
 - **Bilingual UI** — zh / en with browser language detection and persisted preference.
 - **Optional auth** — Bearer API keys with multi-tenant data isolation (`tenant:secret`, `*:admin`). Unconfigured = anonymous mode (default; trusted networks only).
