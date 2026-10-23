@@ -246,6 +246,8 @@ const en: Record<keyof typeof zh, string> = {
   'se.to': 'to',
   'se.noIndex': '⚠ The search index is empty. Index completed recordings first.',
   'se.indexAll': 'Index all completed recordings',
+  'se.unindexed': '{n} recording(s) not yet indexed (new recordings are indexed automatically in the background; you can also rebuild manually).',
+  'se.reindexDone': 'Reindex finished: {ok} succeeded, {skip} skipped/failed.',
   'se.relevance': 'Relevance {p}%',
   'se.jumpTo': 'Jump to transcript',
   'se.clickHint': 'Click a card to open the transcript at this sentence',

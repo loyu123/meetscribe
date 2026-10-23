@@ -114,25 +114,39 @@ def _search_text_for(turns, i):
     return "\n".join(ctx)
 
 
-# ---------------- 索引（FR-26 / FR-30） ----------------
+# ---------------- 索引（FR-26 / FR-30，P0-2 异步化） ----------------
+import threading  # noqa: E402
+
+_INDEX_LOCK = threading.Lock()
+_INDEX_INFLIGHT = set()  # 正在索引中的 rid，避免同录音并发重建
+
+
 def index_recording(rid):
-    """为某录音建/重建检索索引（幂等：先删旧块再写新块）。返回切块数。"""
+    """为某录音建/重建检索索引（幂等：先删旧块再写新块）。返回切块数。
+
+    P0-2：全程记录 index_status（indexing/done/failed），失败可观测、可重试。
+    """
     rec = store.get_recording(rid)
     if not rec:
         return 0
     job = store.get_job_by_recording(rid)
     if not job or not job.get("result_path"):
         return 0
+    if rec.get("status") not in ("done", "partial"):
+        return 0
+    store.set_index_status(rid, "indexing")
     turns = _build_turns(rid, job["id"])
     turns = [t for t in turns if t["text"].strip()]
     if not turns:
         delete_index(rid)
+        store.set_index_status(rid, "none")
         return 0
     date = (rec.get("created_at") or "")[:10]
     try:
         vecs = gateway_client.embed([_search_text_for(turns, i) for i in range(len(turns))])
     except Exception as e:  # noqa: BLE001
         print("[search] embed 失败 rid=%s: %r" % (rid, e), flush=True)
+        store.set_index_status(rid, "failed", error=str(e)[:500])
         return 0
     rows = []
     for i, t in enumerate(turns):
@@ -148,8 +162,32 @@ def index_recording(rid):
         c.executemany(
             "INSERT INTO search_chunks(recording_id,job_id,start_ms,end_ms,speaker,date,"
             "text,search_text,embedding,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)", rows)
+    store.set_index_status(rid, "done")
     print("[search] 已索引 rid=%s 切块=%d" % (rid, len(rows)), flush=True)
     return len(rows)
+
+
+def index_recording_async(rid):
+    """后台线程建索引（P0-2）：接口/worker 调用后立即返回，不阻塞请求。同录音去重。"""
+    with _INDEX_LOCK:
+        if rid in _INDEX_INFLIGHT:
+            return
+        _INDEX_INFLIGHT.add(rid)
+
+    def _run():
+        try:
+            index_recording(rid)
+        except Exception as e:  # noqa: BLE001
+            print("[search] 异步索引异常 rid=%s: %r" % (rid, e), flush=True)
+            try:
+                store.set_index_status(rid, "failed", error=str(e)[:500])
+            except Exception:  # noqa: BLE001
+                pass
+        finally:
+            with _INDEX_LOCK:
+                _INDEX_INFLIGHT.discard(rid)
+
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def delete_index(rid):
@@ -157,29 +195,30 @@ def delete_index(rid):
         c.execute("DELETE FROM search_chunks WHERE recording_id=?", (rid,))
 
 
-def ensure_indexed(rid):
-    """若已建索引则跳过，否则增量建索引。"""
-    with store.conn() as c:
-        n = c.execute("SELECT COUNT(*) n FROM search_chunks WHERE recording_id=?", (rid,)).fetchone()["n"]
-    if n > 0:
-        return n
-    return index_recording(rid)
+def index_all_done(progress=None):
+    """为所有已完成录音建立索引（维护用，P0-2 改为后台任务调用）。返回 (成功数, 跳过数)。
 
-
-def index_all_done():
-    """为所有已完成录音建立索引（维护用）。返回 (成功数, 跳过/失败数)。"""
+    progress(done, failed, total)：可选进度回调，供 /search/reindex 状态查询。
+    """
     recs = store.list_recordings(limit=1000)
-    ok = skip = 0
-    for r in recs:
-        if r.get("status") in ("done", "partial"):
-            n = index_recording(r["id"])
-            if n > 0:
-                ok += 1
-            else:
-                skip += 1
+    targets = [r["id"] for r in recs if r.get("status") in ("done", "partial")]
+    total = len(targets)
+    ok = failed = 0
+    for i, rid in enumerate(targets):
+        n = index_recording(rid)
+        if n > 0:
+            ok += 1
         else:
-            skip += 1
-    return ok, skip
+            rec = store.get_recording(rid)
+            # embed 失败会标记 failed；无结果/空转写归为跳过
+            if rec and rec.get("index_status") == "failed":
+                failed += 1
+        if progress:
+            try:
+                progress(ok + failed + (i + 1 - ok - failed), failed, total)
+            except Exception:  # noqa: BLE001
+                pass
+    return ok, total - ok - failed
 
 
 def _all_indexed_recording_ids():
@@ -306,25 +345,25 @@ def _highlight(text, query):
 
 
 def search(query, filters=None, page=1, page_size=10):
-    """执行一次混合检索，返回 {results, total, facets, indexed_recordings}。"""
+    """执行一次混合检索，返回 {results, total, facets, indexed_recordings, unindexed}。
+
+    P0-2：请求路径不再同步 ensure_indexed 全量扫描，仅查询已索引数据；
+    未索引的已完成录音数量通过 unindexed 返回，由前端提示/后台异步补建。
+    """
     filters = filters or {}
     query = (query or "").strip()
 
-    # 1) 确保已完成录音均已建索引（首次/增量）；空查询也先建索引以填充过滤项
-    for r in store.list_recordings(limit=1000):
-        if r.get("status") in ("done", "partial"):
-            ensure_indexed(r["id"])
-
     allowed_rids = filters.get("recording_ids")  # 租户隔离：仅限可见录音
+    unindexed = store.count_unindexed(allowed_rids)
 
     if not query:
         return {"results": [], "total": 0, "facets": _facets(allowed_rids),
-                "indexed_recordings": _scope_indexed(allowed_rids)}
+                "indexed_recordings": _scope_indexed(allowed_rids), "unindexed": unindexed}
 
     chunks = _load_chunks(filters)
     if not chunks:
         return {"results": [], "total": 0, "facets": _facets(allowed_rids),
-                "indexed_recordings": _scope_indexed(allowed_rids)}
+                "indexed_recordings": _scope_indexed(allowed_rids), "unindexed": unindexed}
 
     q_tokens = _tokenize(query)
     bm25_scores, bm25_ranked = _bm25(q_tokens, chunks)
@@ -378,7 +417,8 @@ def search(query, filters=None, page=1, page_size=10):
 
     _log_query(query, total, [c["recording_id"] for c in order[:10]])
     return {"results": results, "total": total, "page": page, "page_size": page_size,
-            "facets": _facets(allowed_rids), "indexed_recordings": _scope_indexed(allowed_rids)}
+            "facets": _facets(allowed_rids), "indexed_recordings": _scope_indexed(allowed_rids),
+            "unindexed": unindexed}
 
 
 def _facets(allowed_rids=None):

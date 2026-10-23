@@ -23,7 +23,10 @@ CREATE TABLE IF NOT EXISTS recordings (
   error TEXT,
   created_at TEXT,
   deleted_at REAL,
-  folder TEXT DEFAULT ''
+  folder TEXT DEFAULT '',
+  index_status TEXT DEFAULT 'none',  -- none/indexing/done/failed（P0-2 搜索索引异步化）
+  indexed_at TEXT,
+  index_error TEXT
 );
 CREATE TABLE IF NOT EXISTS folders (
   name TEXT PRIMARY KEY,
@@ -168,6 +171,9 @@ _MIGRATIONS = [
     ("jobs", "tenant_id", "TEXT DEFAULT ''"),
     ("summaries", "tenant_id", "TEXT DEFAULT ''"),
     ("summaries", "stale", "INTEGER DEFAULT 0"),
+    ("recordings", "index_status", "TEXT DEFAULT 'none'"),
+    ("recordings", "indexed_at", "TEXT"),
+    ("recordings", "index_error", "TEXT"),
 ]
 
 
@@ -381,6 +387,32 @@ def get_recording(rid):
     with conn() as c:
         r = c.execute("SELECT * FROM recordings WHERE id=?", (rid,)).fetchone()
         return dict(r) if r else None
+
+
+# ---------------- 索引状态（P0-2 搜索索引异步化） ----------------
+def set_index_status(rid, status, error=None):
+    """更新录音检索索引状态：none / indexing / done / failed。done 时记录 indexed_at。"""
+    with conn() as c:
+        if status == "done":
+            c.execute("UPDATE recordings SET index_status='done', indexed_at=?, index_error=NULL WHERE id=?",
+                      (now(), rid))
+        else:
+            c.execute("UPDATE recordings SET index_status=?, index_error=? WHERE id=?",
+                      (status, error, rid))
+
+
+def count_unindexed(recording_ids=None):
+    """统计尚未完成索引的已完成录音数（none/failed，不含 indexing），供前端提示。"""
+    sql = "SELECT COUNT(*) n FROM recordings WHERE status IN ('done','partial') " \
+          "AND (index_status IS NULL OR index_status IN ('none','failed')) AND deleted_at IS NULL"
+    params = []
+    if recording_ids is not None:
+        if not recording_ids:
+            return 0
+        sql += " AND id IN (%s)" % ",".join("?" for _ in recording_ids)
+        params.extend(recording_ids)
+    with conn() as c:
+        return c.execute(sql, params).fetchone()["n"]
 
 
 def list_recordings(limit=100, tenant_id=None, deleted=False):

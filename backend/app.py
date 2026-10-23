@@ -490,7 +490,7 @@ def edit_turn(rid):
     # 同步刷新检索索引，保证语义搜索命中修正后的文本
     try:
         import search
-        search.index_recording(rid)
+        search.index_recording_async(rid)  # P0-2：后台重建，编辑接口立即返回
     except Exception:  # noqa: BLE001 索引失败不阻塞编辑
         pass
     # 数据一致性：转写已变，基于旧文本的纪要标记过期、旧润色结果作废
@@ -554,9 +554,9 @@ def rename_speaker(rid):
     with open(job["result_path"], "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
 
-    # 同步重建检索索引（chunks 携带说话人名，facet 与命中文本随之更新）
+    # 后台重建检索索引（P0-2）：chunks 携带说话人名，facet 与命中文本随之更新
     try:
-        search.index_recording(rid)
+        search.index_recording_async(rid)
     except Exception:  # noqa: BLE001 索引失败不阻塞重命名
         pass
     return jsonify({"ok": True, "speakers": speakers})
@@ -760,13 +760,42 @@ def rec_index(rid):
         return jsonify({"error": "录音不存在"}), 404
     if not store.get_recording(rid):
         return jsonify({"error": "录音不存在"}), 404
-    return jsonify({"ok": True, "indexed": search.index_recording(rid)})
+    # P0-2：改为后台异步重建，立即返回（状态可通过 /search 查询 unindexed 观察）
+    search.index_recording_async(rid)
+    return jsonify({"ok": True, "started": True})
+
+
+# P0-2 全量重建：后台执行 + 进度查询（原同步实现会长时间挂住 HTTP 请求）
+_REINDEX = {"running": False, "done": 0, "failed": 0, "total": 0,
+            "started_at": None, "finished_at": None, "error": None}
 
 
 @app.post("/api/v1/search/reindex")
 def search_reindex():
-    ok, skip = search.index_all_done()
-    return jsonify({"ok": True, "indexed_recordings": ok, "skipped": skip})
+    if _REINDEX["running"]:
+        return jsonify({"ok": True, "started": False, "status": _REINDEX})
+    _REINDEX.update(running=True, done=0, failed=0, total=0,
+                    started_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+                    finished_at=None, error=None)
+
+    def _run():
+        try:
+            ok, skip = search.index_all_done(
+                progress=lambda done, failed, total: _REINDEX.update(
+                    done=done, failed=failed, total=total))
+            _REINDEX.update(running=False, finished_at=time.strftime("%Y-%m-%d %H:%M:%S"))
+            print("[search] 全量重建完成：成功=%d 跳过=%d" % (ok, skip), flush=True)
+        except Exception as e:  # noqa: BLE001
+            _REINDEX.update(running=False, error=str(e)[:500],
+                            finished_at=time.strftime("%Y-%m-%d %H:%M:%S"))
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "started": True, "status": _REINDEX})
+
+
+@app.get("/api/v1/search/reindex/status")
+def search_reindex_status():
+    return jsonify({"status": _REINDEX})
 
 
 @app.get("/api/v1/search/logs")
@@ -853,7 +882,7 @@ def rec_restore(rid):
     store.restore_recording(rid)
     try:
         import search
-        search.index_recording(rid)         # 恢复后重建语义索引
+        search.index_recording_async(rid)   # 恢复后后台重建语义索引（P0-2）
     except Exception:  # noqa: BLE001
         pass
     return jsonify({"ok": True})

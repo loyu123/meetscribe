@@ -254,6 +254,8 @@ const zh = {
   'se.to': '至',
   'se.noIndex': '⚠ 检索索引为空，需先对已完成录音建立索引。',
   'se.indexAll': '一键索引全部已完成录音',
+  'se.unindexed': '有 {n} 条录音尚未完成索引（新录音会自动在后台补建，也可手动重建）。',
+  'se.reindexDone': '索引重建完成：成功 {ok}，跳过/失败 {skip}。',
   'se.relevance': '相关度 {p}%',
   'se.jumpTo': '跳转转写',
   'se.clickHint': '点击卡片进入转写页并定位该句',

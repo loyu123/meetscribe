@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { searchApi, reindexAll, type SearchResponse, type SearchFilters } from '../api/search'
+import { searchApi, reindexAll, reindexStatus, type SearchResponse, type SearchFilters } from '../api/search'
 import { fmtDuration } from '../utils/format'
 import { t, type TKey } from '../i18n'
 
@@ -18,6 +18,7 @@ export default function Search() {
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [indexing, setIndexing] = useState(false)
+  const [reindexMsg, setReindexMsg] = useState<string | null>(null)
   const runSeq = useRef(0) // 响应乱序守卫
 
   const run = async (query: string = q, p = 1) => {
@@ -42,10 +43,19 @@ export default function Search() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlQ])
 
+  // P0-2：重建为后台任务，提交后轮询进度直至完成再刷新结果
   const doIndex = async () => {
-    setIndexing(true)
+    setIndexing(true); setReindexMsg(null)
     try {
       await reindexAll()
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 1500))
+        const s = (await reindexStatus()).status
+        if (!s.running) {
+          setReindexMsg(t('se.reindexDone', { ok: s.done, skip: s.failed }))
+          break
+        }
+      }
     } catch (e) {
       setErr(t('se.reindexFail', { err: String(e instanceof Error ? e.message : e) }))
     } finally {
@@ -57,7 +67,8 @@ export default function Search() {
     setFilters((f) => ({ ...f, speaker: f.speaker === spk ? undefined : spk }))
 
   const totalPages = data ? Math.ceil(data.total / data.page_size) : 1
-  const needsIndex = data && data.facets.indexed_total === 0
+  const unindexed = data?.unindexed ?? 0
+  const needsIndex = !!data && (data.facets.indexed_total === 0 || unindexed > 0)
 
   // ===== 初始态：居中大搜索框 =====
   if (!submitted) {
@@ -127,10 +138,11 @@ export default function Search() {
 
       {needsIndex && (
         <div className="callout warn">
-          {t('se.noIndex')}
+          {data?.facets.indexed_total === 0 ? t('se.noIndex') : t('se.unindexed', { n: unindexed })}
           <button className="btn-line" style={{ marginLeft: 10 }} disabled={indexing} onClick={doIndex}>
             {indexing ? t('se.indexing') : t('se.indexAll')}
           </button>
+          {reindexMsg && <span style={{ marginLeft: 10 }}>{reindexMsg}</span>}
         </div>
       )}
 
