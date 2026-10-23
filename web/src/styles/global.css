@@ -67,6 +67,7 @@ body {
 .search .go { background: var(--primary); color: #fff; border-radius: 0 var(--r-8) var(--r-8) 0; padding: 0 14px; font-size: 12px; display: flex; align-items: center; }
 .tbtn { font-size: 12px; border: 1px solid var(--line); background: #fff; color: var(--ink-700); border-radius: var(--r-8); padding: 5px 12px; cursor: pointer; }
 .tbtn.primary { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; display: inline-flex; align-items: center; gap: 7px; }
+.topbar .tactions { display: flex; align-items: center; gap: 14px; }
 .rec-ico { width: 14px; height: 14px; border-radius: 50%; background: var(--primary); position: relative; }
 .tbtn.primary:hover .rec-ico::after { content: ""; position: absolute; left: 3.5px; top: 3.5px; width: 7px; height: 7px; background: #fff; border-radius: 2px; }
 
@@ -713,18 +714,49 @@ body {
     border-radius: var(--r-8, 8px); background: #fff; font-size: 16px; cursor: pointer;
     color: var(--ink-600, #555); }
 
-  /* 顶栏：允许换行，主要按钮可触达 */
-  .topbar { flex-wrap: wrap; gap: 6px; padding: 10px 12px; }
-  .topbar .crumb { font-size: 11.5px; max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .topbar .search { flex: 1 1 130px; min-width: 0; }
-  .topbar .tbtn { padding: 7px 10px; font-size: 12px; }
+  /* 顶栏：两行布局（☰ + 搜索 / 操作按钮），高度随内容增长，
+     否则 flex-wrap 换行后按钮会溢出固定高度的 header，压住页面标题。 */
+  .topbar { height: auto; min-height: var(--topbar-h); flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
+  .topbar .crumb { display: none; }
+  .topbar .spacer { display: none; }
+  .topbar .search { flex: 1 1 auto; max-width: none; min-width: 0; }
+  .topbar .tactions { flex: 1 1 100%; justify-content: flex-end; gap: 8px; }
+  .topbar .tbtn { padding: 6px 10px; font-size: 12px; }
+
+  /* 统计卡改 2 列等宽，避免 flex-wrap 留下的半行空白 */
+  .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .stat { min-width: 0; padding: 10px 12px; }
+
+  /* 详情页：长文件名可折行；播放器与导出条改为两行，导出按钮横向滚动不出屏 */
+  .detail-head h1 { font-size: 18px; word-break: break-word; }
+  .player.stick { border-radius: var(--r-12, 12px); flex-wrap: wrap; gap: 8px; padding: 8px 10px; }
+  .player.stick audio { flex: 1 1 100%; }
+  .player.stick .export { flex: 1 1 100%; overflow-x: auto; gap: 6px; padding-bottom: 2px; align-items: center; }
+  .player.stick .export > * { flex: 0 0 auto; white-space: nowrap; }
+  .player.stick .export::-webkit-scrollbar { height: 0; }
+
+  /* 详情页页签：模板选择与操作按钮换行，避免中文被压成竖排 */
+  .tabs { flex-wrap: wrap; gap: 8px 12px; margin: 14px 0; }
+  .tabs .tb { flex: 0 0 auto; white-space: nowrap; }
+  .tabs .tplsel { margin-left: 0; max-width: 44vw; }
+  .tabs .act { flex: 1 1 100%; justify-content: flex-end; gap: 14px; font-size: 12px; }
+  .tabs .act > span { flex: 0 0 auto; white-space: nowrap; }
 
   /* 常见双栏/横排区块纵向堆叠 */
-  .newtask .row, .nt-row { flex-direction: column; }
+  .newtask .row, .nt-row, .row2 { flex-direction: column; gap: 10px; }
   .callout, .sec-warn { font-size: 12px; }
 
   /* 模态弹层不超屏 */
   .modal { width: 94vw; max-width: 94vw; max-height: 88dvh; overflow: auto; }
+
+  /* 设置弹窗的三列网关模型字段在窄屏挤成截断文本，改为单列 */
+  .modal .gwrow { grid-template-columns: 1fr; gap: 0; }
+
+  /* 质量中心：指标卡与筛选条换行，标签不再被挤成竖排 */
+  .confbar { flex-wrap: wrap; gap: 10px 18px; padding: 12px 14px; }
+  .confbar .lab { white-space: nowrap; }
+  .confbar .sub { margin-left: 0; flex: 1 1 100%; text-align: left; }
+  .resbar .meta { flex: 1 1 100%; margin-left: 0; }
 
   /* 搜索聚合组头 */
   .sgroup .sg-head .chip { margin-left: 0; }

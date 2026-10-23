@@ -27,6 +27,7 @@ export default function Topbar({ onBurger }: { onBurger?: () => void }) {
 
   const batch = new URLSearchParams(loc.search).get('batch') === '1'
   const onHome = loc.pathname === '/'
+  const onNew = loc.pathname === '/new'
   const label = t(CRUMB.find(([re]) => re.test(loc.pathname))?.[1] ?? 'crumb.workbench')
 
   // 录音列表缓存：用于文件名即时检索（recordings-changed 时刷新）
@@ -135,15 +136,20 @@ export default function Topbar({ onBurger }: { onBurger?: () => void }) {
         )}
       </div>
       <span className="spacer" />
-      <span className="tbtn" title={t('top.templates')} onClick={() => setTplOpen(true)}>
-        {t('top.templates')}
-      </span>
-      <span className={'tbtn' + (batch && onHome ? ' on' : '')} onClick={toggleBatch} title={t('top.batch')}>
-        {batch && onHome ? t('top.batchExit') : t('top.batch')}
-      </span>
-      <span className="tbtn primary" onClick={() => nav('/new')}>
-        <span className="rec-ico" /> {t('top.newTask')}
-      </span>
+      {/* 操作区单独成组：移动端整组换行，避免按钮溢出顶栏盖住页面标题 */}
+      <div className="tactions">
+        <span className="tbtn" title={t('top.templates')} onClick={() => setTplOpen(true)}>
+          {t('top.templates')}
+        </span>
+        <span className={'tbtn' + (batch && onHome ? ' on' : '')} onClick={toggleBatch} title={t('top.batch')}>
+          {batch && onHome ? t('top.batchExit') : t('top.batch')}
+        </span>
+        {!onNew && (
+          <span className="tbtn primary" onClick={() => nav('/new')}>
+            <span className="rec-ico" /> {t('top.newTask')}
+          </span>
+        )}
+      </div>
       {tplOpen && <TemplateManager onClose={() => setTplOpen(false)} />}
     </header>
   )
