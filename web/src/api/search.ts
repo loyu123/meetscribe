@@ -16,6 +16,12 @@ export interface SearchFacets {
   folders?: { folder: string; count: number }[] // P1-4 文件夹 facet（'' = 未归档）
   indexed_total: number
 }
+export interface SearchMeta {
+  tokenize_version: number // 当前程序的分词口径版本
+  index_tokenize_version: number | null // 现有索引的分词口径版本（未知为 null）
+  needs_reindex: boolean // 索引版本落后 → 建议重建
+  indexed_at: string | null
+}
 export interface SearchResponse {
   results: SearchHit[]
   total: number
@@ -24,6 +30,7 @@ export interface SearchResponse {
   facets: SearchFacets
   indexed_recordings: string[] // 已建索引的录音 id 列表（UI 显示其数量）
   unindexed?: number // 尚未完成索引的已完成录音数（P0-2 异步索引）
+  meta?: SearchMeta // U2：分词版本一致性信息
 }
 
 export interface ReindexStatus {

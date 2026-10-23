@@ -50,3 +50,34 @@ export async function putJSON<T>(path: string, body: unknown = {}): Promise<T> {
   if (!r.ok) throw await errOf(r)
   return (await r.json()) as T
 }
+
+/** 从 Content-Disposition 取文件名（后端目前用录音 id，兜底用调用方给的名称） */
+function filenameOf(r: Response, fallback: string): string {
+  const cd = r.headers.get('Content-Disposition') || ''
+  const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd)
+  if (!m || !m[1]) return fallback
+  try {
+    return decodeURIComponent(m[1])
+  } catch {
+    return m[1]
+  }
+}
+
+/**
+ * U3：文件下载（导出 TXT/MD/DOCX/SRT/VTT）。
+ * 用 fetch 而非 <a href> 直连，失败时才能读到后端 JSON 里的 error 文案并提示用户，
+ * 避免浏览器把错误 JSON 当成文件下载下来。
+ */
+export async function downloadFile(path: string, fallbackName: string): Promise<void> {
+  const r = await fetch(BASE + path, { headers: { Accept: '*/*', ...authHeaders() } })
+  if (!r.ok) throw await errOf(r)
+  const blob = await r.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filenameOf(r, fallbackName)
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 3000)
+}

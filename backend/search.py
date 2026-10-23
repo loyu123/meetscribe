@@ -48,7 +48,15 @@ CREATE TABLE IF NOT EXISTS search_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_sc_rec ON search_chunks(recording_id);
 CREATE INDEX IF NOT EXISTS idx_sc_date ON search_chunks(date);
+CREATE TABLE IF NOT EXISTS search_meta (
+  k TEXT PRIMARY KEY,
+  v TEXT
+);
 """
+
+# U2：分词/切块口径版本。任何改变 _tokenize 或 search_text 组成方式的改动都必须 +1，
+# 否则旧索引与查询侧 token 口径不一致（专名召回明显变差），前端会提示重建。
+TOKENIZE_VERSION = 2
 
 _K1 = 1.5
 _B = 0.75
@@ -64,6 +72,38 @@ def init_search_db():
 
 def _now():
     return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+# ---------------- 索引元信息（U2：分词版本一致性） ----------------
+def _meta_get(k):
+    with store.conn() as c:
+        row = c.execute("SELECT v FROM search_meta WHERE k=?", (k,)).fetchone()
+    return row["v"] if row else None
+
+
+def _meta_set(k, v):
+    with store.conn() as c:
+        c.execute("INSERT OR REPLACE INTO search_meta(k,v) VALUES(?,?)", (k, str(v)))
+
+
+def index_meta():
+    """当前程序的分词口径 vs 已建索引的口径。
+
+    needs_reindex：仅当索引确实带版本且与当前版本不同时为真。
+    历史库无版本记录时不做误报（下一次建索引会自动补写版本）。
+    """
+    raw = _meta_get("tokenize_version")
+    try:
+        idx_ver = int(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        idx_ver = None
+    stale = idx_ver is not None and idx_ver != TOKENIZE_VERSION
+    return {
+        "tokenize_version": TOKENIZE_VERSION,
+        "index_tokenize_version": idx_ver,
+        "needs_reindex": bool(stale and _all_indexed_recording_ids()),
+        "indexed_at": _meta_get("indexed_at"),
+    }
 
 
 # ---------------- 切块（FR-26） ----------------
@@ -174,6 +214,9 @@ def index_recording(rid):
             "INSERT INTO search_chunks(recording_id,job_id,start_ms,end_ms,speaker,date,"
             "text,search_text,embedding,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)", rows)
     store.set_index_status(rid, "done")
+    # U2：记录本次索引使用的分词版本，供搜索页判断是否需要重建
+    _meta_set("tokenize_version", TOKENIZE_VERSION)
+    _meta_set("indexed_at", _now())
     print("[search] 已索引 rid=%s 切块=%d" % (rid, len(rows)), flush=True)
     return len(rows)
 
@@ -253,7 +296,8 @@ def _tokenize(text):
 
     相比逐字切分，bigram 让「张伟」「合同」等专名/词组成为独立 token，
     BM25 的 idf/短语区分度显著提升；查询与索引两侧共用本函数，天然一致。
-    注意：改动后需全量重建索引（search_chunks.search_text 分词口径变化）。
+    注意：改动后必须把 TOKENIZE_VERSION +1 并全量重建索引
+    （search_chunks.search_text 的 token 口径变化，旧索引与新查询不再同构）。
     """
     text = (text or "").lower()
     toks = re.findall(r"[a-z0-9]+", text)
@@ -365,25 +409,29 @@ def _highlight(text, query):
 
 
 def search(query, filters=None, page=1, page_size=10):
-    """执行一次混合检索，返回 {results, total, facets, indexed_recordings, unindexed}。
+    """执行一次混合检索，返回 {results, total, facets, indexed_recordings, unindexed, meta}。
 
     P0-2：请求路径不再同步 ensure_indexed 全量扫描，仅查询已索引数据；
     未索引的已完成录音数量通过 unindexed 返回，由前端提示/后台异步补建。
+    U2：meta 返回索引分词版本，版本落后时前端提示重建索引。
     """
     filters = filters or {}
     query = (query or "").strip()
 
     allowed_rids = filters.get("recording_ids")  # 租户隔离：仅限可见录音
     unindexed = store.count_unindexed(allowed_rids)
+    meta = index_meta()
 
     if not query:
         return {"results": [], "total": 0, "facets": _facets(allowed_rids),
-                "indexed_recordings": _scope_indexed(allowed_rids), "unindexed": unindexed}
+                "indexed_recordings": _scope_indexed(allowed_rids), "unindexed": unindexed,
+                "meta": meta}
 
     chunks = _load_chunks(filters)
     if not chunks:
         return {"results": [], "total": 0, "facets": _facets(allowed_rids),
-                "indexed_recordings": _scope_indexed(allowed_rids), "unindexed": unindexed}
+                "indexed_recordings": _scope_indexed(allowed_rids), "unindexed": unindexed,
+                "meta": meta}
 
     q_tokens = _tokenize(query)
     bm25_scores, bm25_ranked = _bm25(q_tokens, chunks)
@@ -438,7 +486,7 @@ def search(query, filters=None, page=1, page_size=10):
     _log_query(query, total, [c["recording_id"] for c in order[:10]])
     return {"results": results, "total": total, "page": page, "page_size": page_size,
             "facets": _facets(allowed_rids), "indexed_recordings": _scope_indexed(allowed_rids),
-            "unindexed": unindexed}
+            "unindexed": unindexed, "meta": meta}
 
 
 def _facets(allowed_rids=None):

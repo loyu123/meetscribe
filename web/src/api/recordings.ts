@@ -1,4 +1,4 @@
-import { getJSON, authHeaders } from './client'
+import { getJSON, authHeaders, downloadFile } from './client'
 import type { Recording, Stats, RecordingDetailResponse, SummaryStatus, Summary, JobDetailResponse, Result, ReviewSegment, SummaryTemplate, TplSection, TplOpts } from './types'
 
 // 纪要模板：列表 / 创建 / 编辑 / 删除
@@ -203,5 +203,13 @@ export async function editSummary(sid: string, before: string, after: string): P
     body: JSON.stringify({ before, after }),
   })
 }
+
+// U3：导出走 fetch + Blob，服务端的失败原因（如「暂无转写结果」「缺少 python-docx」）
+// 会以 Error.message 抛给调用方展示，而不是被浏览器当成文件存下来。
+export const downloadTranscript = (rid: string, fmt: 'txt' | 'md' | 'docx') =>
+  downloadFile(`/recordings/${rid}/export?fmt=${fmt}`, `${rid}.${fmt}`)
+
+export const downloadSubtitle = (rid: string, fmt: 'srt' | 'vtt') =>
+  downloadFile(`/recordings/${rid}/subtitle?fmt=${fmt}`, `${rid}.${fmt}`)
 
 export type { Summary }

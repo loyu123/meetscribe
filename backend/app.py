@@ -858,19 +858,19 @@ def _build_subtitle(result, fmt):
 @app.get("/api/v1/recordings/<rid>/subtitle")
 def rec_subtitle(rid):
     if not _tenant_can_access(rid):
-        return jsonify({"error": "录音不存在"}), 404
+        return jsonify({"error": "录音不存在或已被删除"}), 404
     rec = store.get_recording(rid)
     if not rec:
-        return jsonify({"error": "录音不存在"}), 404
+        return jsonify({"error": "录音不存在或已被删除"}), 404
     job = store.get_job_by_recording(rid)
     if not job or not job.get("result_path"):
-        return jsonify({"error": "该录音暂无转写结果"}), 400
+        return jsonify({"error": "该录音还没有转写结果，请等待转写完成后再导出字幕"}), 400
     fmt = (request.args.get("fmt") or request.args.get("format") or "srt").lower()
     if fmt not in ("srt", "vtt"):
-        fmt = "srt"
+        return jsonify({"error": "不支持的字幕格式：%s（可选 srt / vtt）" % fmt}), 400
     result = _json(job["result_path"])
     if not result:
-        return jsonify({"error": "结果缺失"}), 400
+        return jsonify({"error": "转写结果文件缺失或已损坏，请重新转写后再导出"}), 400
     body = _build_subtitle(result, fmt)
     mime = "application/x-subrip" if fmt == "srt" else "text/vtt"
     return Response(body, mimetype=mime,
@@ -1030,24 +1030,37 @@ def _build_docx(s, template, rec, result):
 
 @app.get("/api/v1/recordings/<rid>/export")
 def rec_export(rid):
-    """P1-3 导出：fmt=txt 带时间戳纯文本转写；fmt=md Markdown 纪要（无纪要时回退转写全文）。"""
+    """P1-3 导出：fmt=txt 带时间戳纯文本转写；fmt=md Markdown 纪要（无纪要时回退转写全文）。
+
+    U3：所有失败路径都返回可直接展示给用户的中文原因，
+    前端（utils/download）会读 error 字段并弹提示，避免浏览器把 JSON 当成文件下载。
+    """
     if not _tenant_can_access(rid):
-        return jsonify({"error": "录音不存在"}), 404
+        return jsonify({"error": "录音不存在或已被删除"}), 404
     rec = store.get_recording(rid)
     if not rec:
-        return jsonify({"error": "录音不存在"}), 404
+        return jsonify({"error": "录音不存在或已被删除"}), 404
     job = store.get_job_by_recording(rid)
     if not job or not job.get("result_path"):
-        return jsonify({"error": "该录音暂无转写结果"}), 400
+        return jsonify({"error": "该录音还没有转写结果，请等待转写完成后再导出"}), 400
     result = _json(job["result_path"])
     if not result:
-        return jsonify({"error": "结果缺失"}), 400
+        return jsonify({"error": "转写结果文件缺失或已损坏，请重新转写后再导出"}), 400
     fmt = (request.args.get("fmt") or request.args.get("format") or "txt").lower()
+    if fmt not in ("txt", "md", "docx"):
+        return jsonify({"error": "不支持的导出格式：%s（可选 txt / md / docx）" % fmt}), 400
     if fmt == "docx":
         s = store.get_summary(rid)
         if s and s.get("status") != "done":
             s = None
-        body = _build_docx(s, (s.get("template") if s else None) or "meeting", rec, result)
+        try:
+            body = _build_docx(s, (s.get("template") if s else None) or "meeting", rec, result)
+        except ImportError:
+            return jsonify({"error": "Word 导出不可用：服务端缺少 python-docx 依赖，"
+                                     "请改用 Markdown 或 TXT 导出"}), 500
+        except Exception as e:  # noqa: BLE001
+            print("[export] docx 生成失败 rid=%s: %r" % (rid, e), flush=True)
+            return jsonify({"error": "Word 导出失败，请改用 Markdown 或 TXT 导出"}), 500
         return Response(body,
                         mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         headers={"Content-Disposition": "attachment; filename=\"%s.docx\"" % rid})

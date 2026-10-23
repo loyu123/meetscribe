@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
-import { getRecording, getSummary, postSummary, editSummary, groupSummary, getTemplates } from '../api/recordings'
+import { getRecording, getSummary, postSummary, editSummary, groupSummary, getTemplates, downloadTranscript, downloadSubtitle } from '../api/recordings'
 import type { RecordingDetailResponse, SummaryStatus, SummaryContentMeeting, SummaryContentMemo, SummaryPoint, SummaryTemplate } from '../api/types'
 import { fmtDuration, fmtTime } from '../utils/format'
 import TranscriptPane from '../components/TranscriptPane'
@@ -66,6 +66,8 @@ export default function MeetingDetail() {
   const [draft, setDraft] = useState('')
   const [copied, setCopied] = useState(false)
   const [copyTsOk, setCopyTsOk] = useState(false)
+  const [exportErr, setExportErr] = useState<string | null>(null)
+  const [exporting, setExporting] = useState<string | null>(null)
   const timer = useRef<number | null>(null)
 
   const startPoll = (t: Tpl) => {
@@ -148,6 +150,20 @@ export default function MeetingDetail() {
     }
   }
 
+  // U3：导出统一走 fetch，失败时把后端中文原因显示出来（不再下载一份错误 JSON）
+  const doExport = async (kind: 'export' | 'subtitle', fmt: string) => {
+    setExportErr(null)
+    setExporting(fmt)
+    try {
+      if (kind === 'subtitle') await downloadSubtitle(id, fmt as 'srt' | 'vtt')
+      else await downloadTranscript(id, fmt as 'txt' | 'md' | 'docx')
+    } catch (e) {
+      setExportErr(t('dt.exportFail', { err: String(e instanceof Error ? e.message : e) }))
+    } finally {
+      setExporting(null)
+    }
+  }
+
   // P1-3：一键复制带时间戳的纯文本转写（result.text 即「说话人(时间) 内容」格式）
   const copyTranscript = () => {
     const text = detail?.result?.text
@@ -209,15 +225,20 @@ export default function MeetingDetail() {
             onTimeUpdate={(e) => setCurMs(e.currentTarget.currentTime * 1000)}
           />
           <span className="export">
-            <a href={`/api/v1/recordings/${id}/subtitle?fmt=srt`} download>{t('dt.exportSrt')}</a>
-            <a href={`/api/v1/recordings/${id}/subtitle?fmt=vtt`} download>{t('dt.exportVtt')}</a>
-            <a href={`/api/v1/recordings/${id}/export?fmt=txt`} download>{t('dt.exportTxt')}</a>
-            <a href={`/api/v1/recordings/${id}/export?fmt=md`} download>{t('dt.exportMd')}</a>
-            <a href={`/api/v1/recordings/${id}/export?fmt=docx`} download>{t('dt.exportDocx')}</a>
+            {([['subtitle', 'srt', t('dt.exportSrt')], ['subtitle', 'vtt', t('dt.exportVtt')],
+              ['export', 'txt', t('dt.exportTxt')], ['export', 'md', t('dt.exportMd')],
+              ['export', 'docx', t('dt.exportDocx')]] as const).map(([kind, fmt, label]) => (
+              <a key={fmt} href={`/api/v1/recordings/${id}/${kind}?fmt=${fmt}`}
+                style={{ opacity: exporting === fmt ? 0.55 : undefined }}
+                onClick={(e) => { e.preventDefault(); if (!exporting) doExport(kind, fmt) }}>
+                {exporting === fmt ? t('dt.exporting') : label}
+              </a>
+            ))}
             <span className="lnk" style={{ cursor: 'pointer' }} onClick={copyTranscript}>{copyTsOk ? t('dt.copied') : t('dt.copyTs')}</span>
           </span>
         </div>
       )}
+      {exportErr && <div className="callout warn" style={{ marginTop: 8 }}>{exportErr}</div>}
 
       <div className="tabs">
         <span className={'tb' + (tab === 'transcript' ? ' on' : '')} onClick={() => setTab('transcript')}>

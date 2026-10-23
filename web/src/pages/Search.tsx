@@ -171,6 +171,19 @@ export default function Search() {
         </div>
       )}
 
+      {/* U2：索引分词版本落后 → 旧索引与新查询口径不一致，专名召回会变差 */}
+      {data?.meta?.needs_reindex && (
+        <div className="callout warn">
+          {t('se.tokenizeStale', {
+            cur: data.meta.tokenize_version,
+            old: data.meta.index_tokenize_version ?? '?',
+          })}
+          <button className="btn-line" style={{ marginLeft: 10 }} disabled={indexing} onClick={doIndex}>
+            {indexing ? t('se.indexing') : t('se.reindex')}
+          </button>
+        </div>
+      )}
+
       {data && (
         <>
           <div className="facet">

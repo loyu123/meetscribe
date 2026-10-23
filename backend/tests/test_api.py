@@ -1,6 +1,10 @@
 """API 冒烟测试（匿名模式 + 鉴权开关）。"""
+import json
+
 import config
 import pytest
+
+import store
 
 
 def test_system_ok(client):
@@ -20,6 +24,63 @@ def test_search_empty_query(client):
 def test_export_missing_recording_404(client):
     r = client.get("/api/v1/recordings/nonexistent/export?fmt=txt")
     assert r.status_code == 404
+    # U3：错误体必须是可直接展示的中文原因（前端会读 error 字段弹提示）
+    assert "不存在" in r.get_json()["error"]
+
+
+def _seed_done_recording(tmp_path, rid="rid-exp", jid="jid-exp", with_result=True):
+    """造 录音 + 已完成任务（可选写入结果 JSON），返回结果文件路径。"""
+    rp = tmp_path / "result.json"
+    if with_result:
+        rp.write_text(json.dumps({"turns": [], "speakers": [], "text": "你好"}, ensure_ascii=False),
+                      encoding="utf-8")
+    store.init_db()
+    with store.conn() as c:
+        c.execute("DELETE FROM jobs WHERE recording_id=?", (rid,))
+        c.execute("DELETE FROM recordings WHERE id=?", (rid,))
+        c.execute("INSERT INTO recordings(id, filename, status, created_at) "
+                  "VALUES(?, 'export.wav', 'done', '2026-01-01 00:00:00')", (rid,))
+        c.execute("INSERT INTO jobs(id, recording_id, status, result_path, created_at, updated_at) "
+                  "VALUES(?, ?, 'done', ?, '2026-01-01 00:00:00', '2026-01-01 00:00:00')",
+                  (jid, rid, str(rp) if with_result else None))
+    return rid
+
+
+def _drop_recording(rid="rid-exp"):
+    with store.conn() as c:
+        c.execute("DELETE FROM jobs WHERE recording_id=?", (rid,))
+        c.execute("DELETE FROM recordings WHERE id=?", (rid,))
+
+
+def test_export_without_result_is_readable(client, tmp_path):
+    rid = _seed_done_recording(tmp_path, with_result=False)
+    try:
+        r = client.get("/api/v1/recordings/%s/export?fmt=txt" % rid)
+        assert r.status_code == 400
+        assert "转写" in r.get_json()["error"]
+    finally:
+        _drop_recording(rid)
+
+
+def test_export_unsupported_format_is_readable(client, tmp_path):
+    rid = _seed_done_recording(tmp_path)
+    try:
+        r = client.get("/api/v1/recordings/%s/export?fmt=pdf" % rid)
+        assert r.status_code == 400
+        msg = r.get_json()["error"]
+        assert "不支持" in msg and "pdf" in msg
+    finally:
+        _drop_recording(rid)
+
+
+def test_subtitle_unsupported_format_is_readable(client, tmp_path):
+    rid = _seed_done_recording(tmp_path)
+    try:
+        r = client.get("/api/v1/recordings/%s/subtitle?fmt=txt" % rid)
+        assert r.status_code == 400
+        assert "不支持" in r.get_json()["error"]
+    finally:
+        _drop_recording(rid)
 
 
 def test_voiceprint_requires_existing_result(client):
