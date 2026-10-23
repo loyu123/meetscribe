@@ -62,8 +62,20 @@ def _notify(callback_url, payload, jid):
         _log(jid, "webhook_blocked", "%s: %s" % (reason, callback_url[:200]))
         return
     try:
-        requests.post(callback_url, json=payload, timeout=10)
-        _log(jid, "webhook_ok", callback_url)
+        # S1：requests 默认 allow_redirects=True，"公网 URL → 302 内网" 可绕过校验。
+        # 故禁用自动重定向，改为手动跟随一次并对 Location 重新过 SSRF 校验。
+        r = requests.post(callback_url, json=payload, timeout=10, allow_redirects=False)
+        if 300 <= r.status_code < 400 and r.headers.get("Location"):
+            loc = r.headers["Location"]
+            ok2, reason2 = _webhook_url_allowed(loc)
+            if not ok2:
+                _log(jid, "webhook_blocked", "redirect %s: %s" % (reason2, loc[:200]))
+                return
+            _log(jid, "webhook_redirect", loc[:200])
+            requests.post(loc, json=payload, timeout=10, allow_redirects=False)
+            _log(jid, "webhook_ok", loc)
+        else:
+            _log(jid, "webhook_ok", callback_url)
     except Exception as e:  # noqa
         _log(jid, "webhook_fail", "%s: %s" % (callback_url, e))
 

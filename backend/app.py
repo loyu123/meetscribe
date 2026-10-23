@@ -606,6 +606,22 @@ def rename_speaker(rid):
     return jsonify({"ok": True, "speakers": speakers})
 
 
+def _safe_audio_path(p):
+    """S2：媒体路径约束——库内路径（DB 被污染/历史脏数据）不得逃出数据目录。
+
+    返回 realpath 后的安全路径；越界返回 None 并记安全日志。
+    """
+    if not p:
+        return None
+    real = os.path.realpath(p)
+    roots = [os.path.realpath(config.DATA_DIR)]
+    for r in roots:
+        if real == r or real.startswith(r + os.sep):
+            return real
+    print("[security] 媒体路径越界已拦截: %s" % p, flush=True)
+    return None
+
+
 @app.get("/api/v1/recordings/<rid>/media")
 def rec_media(rid):
     if not _tenant_can_access(rid):
@@ -616,8 +632,9 @@ def rec_media(rid):
     if os.path.isfile(norm):
         return send_file(norm, mimetype="audio/wav", conditional=True)
     rec = store.get_recording(rid)
-    if rec and rec.get("path") and os.path.isfile(rec["path"]):
-        return send_file(rec["path"], conditional=True)
+    safe = _safe_audio_path(rec.get("path")) if rec else None
+    if safe and os.path.isfile(safe):
+        return send_file(safe, conditional=True)
     return jsonify({"error": "音频不存在"}), 404
 
 
@@ -1588,5 +1605,14 @@ def _start_housekeeping():
 if __name__ == "__main__":
     worker.start_workers()
     _start_housekeeping()
+    # S3：公网"裸奔"检测——监听非本机且未配置 API 鉴权时打醒目警告
+    _host = os.environ.get("ASR_HOST", "0.0.0.0")
+    if _host not in ("127.0.0.1", "localhost", "::1") and not config.API_KEY_TENANTS:
+        print("=" * 64, flush=True)
+        print("⚠️  安全警告：服务监听 %s，但未配置 ASR_API_KEYS——" % _host, flush=True)
+        print("    同一网络内任何人可上传录音并读取全部数据。", flush=True)
+        print("    公网/办公网部署请配置 ASR_API_KEYS 与 ASR_MEDIA_SIGN_SECRET，", flush=True)
+        print("    示例见仓库 .env.example。", flush=True)
+        print("=" * 64, flush=True)
     print(">> ASR 服务启动：http://0.0.0.0:5000  (API 前缀 /api/v1)", flush=True)
     app.run(host="0.0.0.0", port=5000, threaded=True, debug=False, use_reloader=False)
