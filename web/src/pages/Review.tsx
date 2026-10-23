@@ -57,9 +57,9 @@ export default function Review() {
     try {
       const r = await confirmReview(ids)
       if (r.ok) {
-        setSegs((list) => list.filter((s) => !ids.includes(s.id)))
+        // C3：确认后整体重载——total「共 y 条」与列表同步，并加载筛选下的后续条目
+        load()
         setSel((s) => s.filter((x) => !ids.includes(x)))
-        getStats().then(setStats).catch(() => {})
         // 广播给侧栏等：待复核角标数量立即同步
         window.dispatchEvent(new Event('recordings-changed'))
       } else {

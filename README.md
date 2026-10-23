@@ -114,6 +114,12 @@ pip install torch --index-url https://download.pytorch.org/whl/cu121
 
 生产环境建议用 systemd / supervisor 托管，示例见 `backend` 目录注释。
 
+运行后端测试集（无需 GPU/模型，28 个用例约 6 秒，覆盖 API 冒烟、鉴权、SSRF 防护、分词、结构校验、存储层）：
+
+```bash
+cd backend && pip install -r requirements-dev.txt && python -m pytest tests/ -q
+```
+
 ### 1b. 一键 Docker 启动（推荐，P0-4）
 
 ```bash

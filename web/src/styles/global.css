@@ -580,6 +580,18 @@ body {
 .vp-item { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line, #e5e8ef);
   border-radius: var(--r-8, 8px); padding: 6px 10px; margin-bottom: 6px; font-size: 12.5px; }
 
+/* C1 系统状态指标 */
+.metrics { display: flex; flex-wrap: wrap; gap: 6px; }
+.metrics .mchip { border: 1px solid var(--line, #e5e8ef); border-radius: var(--r-full, 999px);
+  padding: 3px 10px; font-size: 11.5px; color: var(--ink-600, #555); background: #fff; }
+.metrics .mchip.warn { border-color: var(--orange, #e8862a); color: var(--orange, #e8862a); }
+.metrics-fails { margin-top: 6px; border: 1px dashed var(--orange, #e8862a); border-radius: 8px;
+  padding: 7px 10px; font-size: 11.5px; }
+.metrics-fails .mf-row { display: flex; gap: 8px; line-height: 1.7; min-width: 0; }
+.metrics-fails .mf-row .k { color: var(--orange, #e8862a); font-weight: 600; flex-shrink: 0; }
+.metrics-fails .mf-row .v { color: var(--ink-500, #777); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+
 /* ================= v1.1：安全引导（P0-3） ================= */
 .sec-warn { display: flex; align-items: flex-start; gap: 8px; background: var(--orange-50, #fdf3e4);
   border: 1px solid #f2d9ac; color: #9a6106; border-radius: var(--r-8); padding: 9px 12px;

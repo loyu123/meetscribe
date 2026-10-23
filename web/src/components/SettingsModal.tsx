@@ -1,9 +1,17 @@
 import { useEffect, useState } from 'react'
 import { loadSettings, saveSettings, type AppSettings } from '../constants'
-import { getGateway, saveGateway, testGateway, getSystemInfo, type GatewaySettings, type SystemInfo } from '../api/settings'
+import { getGateway, saveGateway, testGateway, getSystemInfo, getMetrics, type GatewaySettings, type SystemInfo, type MetricsInfo } from '../api/settings'
 import { getVoiceprints, deleteVoiceprint, type VoiceprintItem } from '../api/recordings'
 import { setApiKey } from '../api/client'
 import { t, useLang } from '../i18n'
+
+// C1：运行时长格式化（d/h/m）
+const fmtUptime = (s: number) => {
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  return d > 0 ? `${d}d${h}h` : h > 0 ? `${h}h${m}m` : `${m}m`
+}
 
 export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const [s, setS] = useState<AppSettings>(() => loadSettings())
@@ -19,6 +27,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const [testing, setTesting] = useState(false)
   const [savingGw, setSavingGw] = useState(false)
   const [vps, setVps] = useState<VoiceprintItem[] | null>(null)
+  const [metrics, setMetrics] = useState<MetricsInfo | null>(null)
 
   useEffect(() => {
     getGateway().then((g) => {
@@ -30,6 +39,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
     }).catch((e) => setGwMsg({ ok: false, text: t('c.loadFailed', { err: String(e instanceof Error ? e.message : e) }) }))
     getSystemInfo().then(setSys).catch(() => {})
     getVoiceprints().then(setVps).catch(() => setVps([]))
+    getMetrics().then(setMetrics).catch(() => {})  // C1：非管理员 403 隐藏区块
   }, [])
 
   const delVp = async (id: string) => {
@@ -77,6 +87,34 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="m-hd">{t('set.title')}</div>
         <div className="m-bd">
+          {/* C1 系统状态（仅管理员可见，非管理员 403 自动隐藏） */}
+          {metrics && (
+            <>
+              <label className="fld">{t('set.metricsTitle')}</label>
+              <div className="metrics">
+                <span className="mchip">⏱ {fmtUptime(metrics.uptime_s)}</span>
+                <span className="mchip">{t('set.mQueue')}: {metrics.queue?.queued ?? 0} / {t('set.mRunning')}: {metrics.queue?.processing ?? 0}</span>
+                <span className="mchip">{t('set.mToday')}: {metrics.jobs_today?.count ?? 0}{metrics.jobs_today?.failure_rate ? ` · ✕${metrics.jobs_today.failed}` : ''}</span>
+                {metrics.reindex?.running && (
+                  <span className="mchip warn">{t('set.mReindex')}: {metrics.reindex.done}/{metrics.reindex.total}</span>
+                )}
+                {metrics.segments?.need_review != null && (
+                  <span className="mchip">{t('set.mReview')}: {metrics.segments.need_review}</span>
+                )}
+              </div>
+              {metrics.recent_failures?.length > 0 && (
+                <div className="metrics-fails">
+                  {metrics.recent_failures.slice(0, 5).map((f, i) => (
+                    <div key={i} className="mf-row">
+                      <span className="k">{f.kind}</span>
+                      <span className="v">{f.filename || f.job_id.slice(0, 8)}{f.detail ? ` — ${f.detail.slice(0, 80)}` : ''}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
           <label className="fld">{t('set.lang')}</label>
           <select value={lang} onChange={(e) => setLang(e.target.value as 'zh' | 'en')}>
             <option value="zh">简体中文</option>

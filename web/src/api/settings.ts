@@ -41,3 +41,19 @@ export interface SystemInfo {
 export function getSystemInfo(): Promise<SystemInfo> {
   return getJSON<SystemInfo>('/system')
 }
+
+/** 运维指标（C1，仅管理员；403 时前端隐藏区块） */
+export interface MetricsInfo {
+  queue: { queued: number; processing: number }
+  jobs: Record<string, number>
+  jobs_today: { count: number; failed: number; failure_rate: number }
+  chunks: Record<string, number>
+  segments: { count?: number; avg_confidence?: number; need_review?: number }
+  recent_failures: { job_id: string; ts: string; kind: string; detail: string; filename?: string | null }[]
+  reindex: { running: boolean; done: number; failed: number; total: number; error: string | null }
+  uptime_s: number
+}
+
+export function getMetrics(): Promise<MetricsInfo> {
+  return getJSON<MetricsInfo>('/system/metrics')
+}
