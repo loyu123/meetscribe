@@ -1,57 +1,61 @@
-# MeetScribe · 聆语会议
+# MeetScribe
 
-**语音转写 + 说话人分离 + AI 纪要 + 跨会议语义检索** 的自托管系统。
+**Self-hosted meeting intelligence:** speech-to-text, speaker diarization, AI minutes, and cross-meeting semantic search.
 
-上传长录音（最长 4GB，自动分片），得到逐句带时间戳、带说话人标签的转写；一键生成结构化会议纪要（要点 / 行动项 / 风险，逐条可溯源到原句）；用自然语言在历史会议中语义检索。界面支持中英双语。
+Upload long recordings (up to 4 GB, auto-chunked) and get timestamped, speaker-labeled transcripts. Generate structured meeting minutes (key points / action items / risks, each traceable to the source line). Search across past meetings with natural language. The UI supports **Chinese and English**.
 
-> 转写引擎 FunASR（Paraformer / SenseVoice）与声纹聚类（CAM++）**完全本地运行**，音频不出本机；
-> 纪要 / 问答 / 检索等文本 AI 走可配置的 OpenAI 兼容网关，可指向本地部署的开源模型或云 API。
+> **Speech recognition runs fully on-device** (FunASR Paraformer / SenseVoice + CAM++ diarization). Audio never leaves the host.
+> Summaries, Q&A, and search use a configurable **OpenAI-compatible gateway** (local open models or cloud APIs).
 
-## 功能特性
+---
 
-- **长音频转写**：分片上传 + 任务队列 + 分片级失败重试/自动切分兜底，断点可续；纪要/润色任务状态落库，服务重启不丢进度
-- **说话人分离**：CAM++ 声纹 + 跨分片质心聚类，支持预设说话人数
-- **说话人可读名**：转写页一键重命名（同步全文/纪要/检索/导出）；可选「存为声纹」，跨会议自动识别同一人（特征仅存本机，可删除）
-- **逐句校对**：低置信度句子自动标记，质量中心支持按录音/原因/置信度筛选与批量确认；人工修正后同步检索索引
-- **AI 纪要**：内置会议纪要 / 单人备忘模板，可自定义模板；长会议采用「全局粗摘要 → 分块 → 归并」策略；要点逐条附说话人与 `[mm:ss]` 时间戳，未在转写中出现的内容不输出
-- **AI 问答**：基于当前会议或多段转写内容问答，回答引用原话并标注时间戳
-- **语义检索**：Embedding 向量召回 + BM25 + Rerank 精排的混合检索，跨会议定位到原句；索引后台异步建立（可一键重建），支持日期/说话人/文件夹过滤
-- **导出**：SRT / VTT 字幕、带时间戳 TXT 转写、Markdown 纪要（无纪要时自动回退转写全文）
-- **运维可观测**：任务/分片耗时、队列深度、24h 成功率、最近失败事件（`GET /api/v1/system/metrics`，管理员）
-- **回收站**：删除 7 天内可恢复；文件夹归类与批量管理
-- **双语界面**：中文 / English，浏览器语言自动检测，选择持久化
-- **可选鉴权**：程序化调用支持 Bearer API Key（多租户数据隔离，管理员可见全部），未配置则保持匿名（默认）
+## Features
 
-## 系统架构
+- **Long-form transcription** — Chunked upload, job queue, per-chunk retry and split-on-failure fallback; resume after interruption. Summary/polish job state is persisted (`ai_jobs`); progress survives process restart.
+- **Speaker diarization** — CAM++ embeddings with cross-chunk centroid clustering; optional preset speaker count.
+- **Readable speaker names** — Rename speakers in the transcript view (propagates to full text, search index, and exports). Optional on-device voiceprint library to recognize the same person across meetings (features stored locally; can be deleted).
+- **Line-level review** — Low-confidence segments are flagged. Quality Center supports filter by recording / reason / confidence and bulk confirm. Edits sync the search index.
+- **AI minutes** — Built-in *Meeting* and *Personal memo* templates, plus custom templates. Long meetings use *global outline → chunk summaries → merge*. Each bullet carries speaker and `[mm:ss]` for jump-to-audio. No content is invented beyond the transcript.
+- **AI Q&A** — Ask over the current meeting (or selected transcript); answers cite original lines with timestamps.
+- **Semantic search** — Hybrid retrieval: embedding recall + BM25 (Chinese bigrams) + rerank. Async background indexing with one-click rebuild. Filters: date, speaker, folder. Results grouped by meeting.
+- **Export** — SRT / VTT subtitles, timestamped plain-text transcript, Markdown minutes (falls back to full transcript if no summary yet).
+- **Ops metrics** — Job/chunk timing, queue depth, recent failures via `GET /api/v1/system/metrics` (admin).
+- **Library management** — Folders, batch move/delete, 7-day trash with restore.
+- **Bilingual UI** — zh / en with browser language detection and persisted preference.
+- **Optional auth** — Bearer API keys with multi-tenant data isolation (`tenant:secret`, `*:admin`). Unconfigured = anonymous mode (default; trusted networks only).
 
-> 🎙️ 语音转写**完全本地运行**，音频不出本机；纪要 / 问答 / 检索等文本 AI 走可配置的 OpenAI 兼容网关。
+---
+
+## Architecture
+
+Speech runs **entirely locally**. Text AI (minutes / Q&A / search) goes through a configurable OpenAI-compatible gateway.
 
 ```mermaid
 flowchart TB
-    subgraph BROWSER["🖥️ 浏览器 — web/（React + Vite）"]
-        UI["工作台 · 新建任务 · 任务进度 · 会议详情<br/>语义搜索 · 质量中心 · 设置（🌐 中英双语）"]
+    subgraph BROWSER["Browser — web/ (React + Vite)"]
+        UI["Workbench · New job · Progress · Meeting detail<br/>Search · Quality Center · Settings (zh / en)"]
     end
 
-    subgraph SERVER["⚙️ 后端 — backend/（Flask + SQLite · 端口 5000）"]
+    subgraph SERVER["Backend — backend/ (Flask + SQLite · port 5000)"]
         direction TB
-        API["🚪 REST API /api/v1<br/>分片上传 · 任务管理 · 录音 · 纪要"]
-        QUEUE["📥 Worker 任务队列<br/>分片级重试 · 失败自动切分兜底"]
-        INFER["🎙️ FunASR 推理池（本地 GPU/CPU）<br/>Paraformer / SenseVoice + CAM++"]
-        DB[("🗄️ SQLite（WAL）<br/>录音 · 任务 · 逐句转写 · 纪要")]
-        AI["📝 文本 AI<br/>纪要生成 · AI 问答 · 润色"]
-        SEARCH["🔎 混合检索<br/>向量召回 + BM25 + 精排"]
+        API["REST API /api/v1<br/>chunk upload · jobs · recordings · minutes"]
+        QUEUE["Worker queue<br/>per-chunk retry · split-on-fail"]
+        INFER["FunASR pool (local GPU/CPU)<br/>Paraformer / SenseVoice + CAM++"]
+        DB[("SQLite WAL<br/>recordings · jobs · segments · summaries")]
+        AI["Text AI<br/>minutes · Q&A · polish"]
+        SEARCH["Hybrid search<br/>vectors + BM25 + rerank"]
     end
 
-    subgraph GATEWAY["☁️ AI 模型网关 — OpenAI 兼容 · 地址/密钥可在界面配置"]
+    subgraph GATEWAY["AI gateway — OpenAI-compatible · configurable in UI"]
         direction LR
-        LLM["💬 chat（LLM）<br/>如 Qwen / DeepSeek"]
-        EMB["🧲 embeddings<br/>如 bge-m3"]
-        RER["🏁 rerank<br/>如 bge-reranker"]
+        LLM["chat (LLM)<br/>e.g. Qwen / DeepSeek"]
+        EMB["embeddings<br/>e.g. bge-m3"]
+        RER["rerank<br/>e.g. bge-reranker"]
     end
 
-    UI -- "/api/v1<br/>(dev: vite 代理 · 生产: 反向代理)" --> API
+    UI -- "/api/v1<br/>(dev: Vite proxy · prod: reverse proxy)" --> API
     API --> QUEUE --> INFER
-    INFER -- "转写 + 说话人落库" --> DB
+    INFER -- "transcript + speakers" --> DB
     API <--> DB
     AI --> LLM
     SEARCH --> EMB
@@ -68,142 +72,163 @@ flowchart TB
     class GATEWAY,LLM,EMB,RER cloud
 ```
 
-## 目录结构
+---
+
+## Repository layout
 
 ```
 meetscribe/
-├── backend/                 # Flask 后端（API 前缀 /api/v1）
-│   ├── app.py               # 路由与接口
-│   ├── config.py            # 全部配置（环境变量可覆盖）
-│   ├── engine.py            # FunASR 推理流水线
-│   ├── worker.py            # 任务队列 worker
-│   ├── store.py             # SQLite 数据层
-│   ├── summary.py / ask.py / rewrite.py / polish.py   # 文本 AI
-│   ├── search.py / gateway_client.py                  # 检索与网关客户端
-│   ├── runtime_settings.py  # 网关配置热更新（界面可改）
-│   ├── run.sh               # 启动脚本（自动建 venv）
-│   └── tools/               # 离线评测与数据集工具（见 tools/README.md）
-├── web/                     # React + Vite 前端
-│   └── src/                 # pages / components / i18n / api
+├── backend/                 # Flask API (/api/v1)
+│   ├── app.py               # Routes
+│   ├── config.py            # Config (env overrides)
+│   ├── engine.py            # FunASR pipeline
+│   ├── worker.py            # Job queue worker (+ webhook SSRF checks)
+│   ├── store.py             # SQLite layer
+│   ├── summary.py / ask.py / rewrite.py / polish.py
+│   ├── search.py / gateway_client.py
+│   ├── runtime_settings.py  # Hot-reload gateway settings from UI
+│   ├── run.sh               # Bootstrap venv + start
+│   ├── Dockerfile
+│   ├── tests/               # Smoke / unit tests (no GPU required)
+│   └── tools/               # Offline eval & dataset helpers
+├── web/                     # React + Vite frontend
+│   ├── Dockerfile / nginx.conf
+│   └── src/                 # pages · components · i18n · api
+├── docker-compose.yml       # CPU / GPU / web profiles
+├── .env.example             # Production env template
 ├── LICENSE                  # Apache-2.0
 └── README.md
 ```
 
-## 快速开始
+---
 
-### 0. 系统要求
+## Quick start
 
-- Python 3.10+；Node.js 18+
-- **ffmpeg**（音频解码/归一化，必装）：`apt install ffmpeg` / `brew install ffmpeg`
-- GPU 可选：有 CUDA 显卡时转写快 5~10 倍；纯 CPU 也能跑（长录音耗时较长）
-- 首次启动会从 ModelScope 自动下载模型权重（约 1~2 GB）
+### Requirements
 
-### 1. 启动后端
+- Python 3.10+, Node.js 18+
+- **ffmpeg** (required): `apt install ffmpeg` / `brew install ffmpeg`
+- GPU optional: CUDA speeds ASR roughly 5–10×; CPU works for shorter files
+- First run downloads model weights from ModelScope (~1–2 GB+, cached under `./models` in Docker)
+
+### Option A — Docker (recommended)
+
+```bash
+# Backend only (API on http://localhost:5000)
+docker compose up -d
+
+# GPU backend (CUDA 12.8; needs nvidia-container-toolkit)
+docker compose --profile gpu up -d
+
+# Backend + web UI (UI on http://localhost:8080, /api reverse-proxied)
+docker compose --profile web --profile gpu up -d
+```
+
+Notes:
+
+- Data (uploads, audio, results, SQLite) lives in `./data`; models in `./models`.
+- Copy `.env.example` → `.env` and set gateway + security vars before public exposure.
+- Dependency ranges are pinned to tested major versions in `backend/requirements.txt`.
+
+### Option B — Local backend + frontend
+
+**Backend**
 
 ```bash
 cd backend
-bash run.sh          # 首次运行自动创建 venv 并安装依赖，然后前台启动
-# 服务地址：http://127.0.0.1:5000
+bash run.sh          # creates venv, installs deps, starts on http://127.0.0.1:5000
 ```
 
-GPU 版 torch 请按你的 CUDA 版本先手动安装（覆盖 CPU 版）：
+For GPU PyTorch (example CUDA 12.1), install torch first, then `run.sh`:
 
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cu121
 ```
 
-生产环境建议用 systemd / supervisor 托管，示例见 `backend` 目录注释。
+**Frontend**
 
-运行后端测试集（无需 GPU/模型，28 个用例约 6 秒，覆盖 API 冒烟、鉴权、SSRF 防护、分词、结构校验、存储层）：
+```bash
+cd web
+npm install
+npm run dev          # http://localhost:5173 — /api proxied to :5000
+# production build → web/dist/ (serve with nginx and reverse-proxy /api)
+npm run build
+```
+
+**Tests** (no GPU / models required):
 
 ```bash
 cd backend && pip install -r requirements-dev.txt && python -m pytest tests/ -q
 ```
 
-### 1b. 一键 Docker 启动（推荐，P0-4）
+### AI gateway (minutes / Q&A / search)
 
-```bash
-# CPU 版（后端 API，http://localhost:5000）
-docker compose up -d
+Open **Settings → AI service** in the UI:
 
-# GPU 版（CUDA 12.8，需 nvidia-container-toolkit）
-docker compose --profile gpu up -d
-
-# 连同前端一起启动（前端 http://localhost:8080，已反代 /api）
-docker compose --profile web --profile gpu up -d
-```
-
-说明：
-- 数据（上传/音频/结果/SQLite）持久化在 `./data`，模型缓存在 `./models`——首次启动会自动从
-  modelscope 下载模型（数 GB），之后重启不再重复下载。
-- AI 网关与安全配置通过 `.env` 或环境变量注入：`ASR_GATEWAY_URL` / `ASR_GATEWAY_TOKEN` /
-  `ASR_API_KEYS` / `ASR_MEDIA_SIGN_SECRET`（公网部署务必配置后两项，见「安全须知」）。
-  完整可抄示例见 `.env.example`（复制为 `.env` 后按需填写）。
-- 依赖版本已按实测组合锁定（见 `backend/requirements.txt`），升级请整组回归验证。
-
-### 2. 启动前端
-
-```bash
-cd web
-npm install
-npm run dev          # 开发模式 http://localhost:5173（/api 已代理到 5000）
-# 或生产构建：
-npm run build        # 产物在 web/dist/，用 nginx 等静态托管并反代 /api
-```
-
-### 3. 配置 AI 网关（纪要 / 问答 / 检索需要）
-
-打开界面右上角 **设置 → AI 服务（模型网关）**，填写：
-
-| 字段 | 说明 | 本地自部署示例 |
+| Field | Purpose | Local example |
 |---|---|---|
-| 网关地址 | OpenAI 兼容 base URL | `http://127.0.0.1:9997/v1`（Xinference） |
-| API 密钥 | Bearer Token | 本地服务可留空占位 |
-| LLM 模型 | 纪要 / 问答 | `qwen2.5-7b-instruct` |
-| Embedding 模型 | 语义检索向量召回 | `bge-m3` |
-| Rerank 模型 | 检索精排 | `bge-reranker-v2-m3` |
+| Gateway URL | OpenAI-compatible base URL | `http://127.0.0.1:9997/v1` (Xinference) |
+| API key | Bearer token | optional for local stacks |
+| LLM model | Minutes / Q&A | `qwen2.5-7b-instruct` |
+| Embedding model | Vector recall | `bge-m3` |
+| Rerank model | Reranking | `bge-reranker-v2-m3` |
 
-点「测试连接」验证后「应用并保存」——配置热生效，无需重启。
-也可以用环境变量预置：`ASR_GATEWAY_URL` / `ASR_GATEWAY_TOKEN` / `ASR_LLM_MODEL` / `ASR_EMBED_MODEL` / `ASR_RERANK_MODEL`。
+Use **Test connection**, then **Apply**. Settings hot-reload without restart.
 
-> 只用转写功能可以不配置网关——语音识别全程本地运行。
+Env equivalents: `ASR_GATEWAY_URL`, `ASR_GATEWAY_TOKEN`, `ASR_LLM_MODEL`, `ASR_EMBED_MODEL`, `ASR_RERANK_MODEL`.
 
-## 常用环境变量（均可在 `config.py` 查看完整列表）
+> Transcription alone does **not** need a gateway — ASR is fully local.
 
-| 变量 | 默认 | 说明 |
+---
+
+## Environment variables
+
+Full list lives in `backend/config.py`. Common ones:
+
+| Variable | Default | Description |
 |---|---|---|
-| `ASR_GATEWAY_URL` / `ASR_GATEWAY_TOKEN` | 空 | AI 网关地址与密钥 |
-| `ASR_DATA_DIR` | `backend/data` | 录音/结果/数据库存储目录 |
-| `ASR_DB_PATH` | `<data>/asr.db` | 数据库路径（Windows 挂载盘建议指到本地盘） |
-| `ASR_CHUNK_SECONDS` | 300 | 转写分片时长 |
-| `ASR_BACKEND` | paraformer | 默认 ASR 后端（paraformer / sensevoice） |
-| `ASR_WORKERS` | 1 | 后台任务线程数 |
-| `ASR_API_KEYS` | 空 | 程序化调用鉴权，如 `tenant1:secret1,*:adminsecret` |
-| `ASR_MAX_UPLOAD_MB` | 4096 | 单文件上限（MB） |
-| `ASR_WEBHOOK_ALLOWED_HOSTS` | 空 | webhook 回调域名白名单（逗号分隔，精确匹配） |
-| `ASR_WEBHOOK_ALLOW_PRIVATE` | 0 | 置 1 关闭回调 SSRF 防护（仅限可信内网自托管） |
+| `ASR_GATEWAY_URL` / `ASR_GATEWAY_TOKEN` | empty | AI gateway |
+| `ASR_DATA_DIR` | `backend/data` | Data root |
+| `ASR_DB_PATH` | `<data>/asr.db` | SQLite path |
+| `ASR_CHUNK_SECONDS` | `300` | Chunk length (seconds) |
+| `ASR_BACKEND` | `paraformer` | `paraformer` \| `sensevoice` |
+| `ASR_WORKERS` | `1` | Worker threads |
+| `ASR_API_KEYS` | empty | Auth, e.g. `tenant1:secret1,*:adminsecret` |
+| `ASR_MEDIA_SIGN_SECRET` | empty | Signed media URLs when set |
+| `ASR_MAX_UPLOAD_MB` | `4096` | Max upload size |
+| `ASR_WEBHOOK_ALLOWED_HOSTS` | empty | Comma-separated exact host allowlist for callbacks |
+| `ASR_WEBHOOK_ALLOW_PRIVATE` | `0` | Set `1` to disable SSRF checks (trusted LAN only) |
 
-## 安全须知（部署前必读）
+---
 
-- **默认匿名模式仅适合可信网络**（本机 / 家庭局域网）。未配置 `ASR_API_KEYS` 时，同一网络内的任何人都可以：读取全部录音与转写、提交任务、修改 AI 网关配置。
-- **暴露到办公室/公网前必须**：
-  - 设置 `ASR_API_KEYS`（如 `me:secret1,*:adminsecret`），此后所有 `/api` 请求需带 `Authorization: Bearer <secret>`；
-  - 建议同时设置 `ASR_MEDIA_SIGN_SECRET` 启用音频下载签名，防止音频直链被转发滥用；
-  - 用 HTTPS 反向代理（nginx/caddy）承载。
-- **回调地址（callback_url）SSRF 防护**：服务端发起 webhook 前会校验目标，默认拒绝本机回环 / 私网（RFC1918）/ 链路本地 / 云元数据地址；确需内网回调时可用 `ASR_WEBHOOK_ALLOWED_HOSTS` 精确放行域名，或 `ASR_WEBHOOK_ALLOW_PRIVATE=1` 关闭校验。
-- 密钥存储：AI 网关密钥仅保存在服务端 `backend/data/runtime_settings.json`（已列入 .gitignore），界面只显示掩码。
+## Security (read before deploying)
 
-## 工具与评测
+- **Anonymous mode is for trusted networks only** (localhost / home LAN). Without `ASR_API_KEYS`, anyone on the network can read transcripts, submit jobs, and change the AI gateway.
+- **Before office LAN or public internet:**
+  - Set `ASR_API_KEYS` (e.g. `me:secret1,*:adminsecret`). All `/api` calls need `Authorization: Bearer <secret>`.
+  - Set `ASR_MEDIA_SIGN_SECRET` so media downloads require a signed token.
+  - Terminate TLS with nginx/Caddy (or equivalent).
+- **Webhook SSRF protection:** Outbound `callback_url` requests are validated. Loopback, RFC1918 private, link-local, and cloud metadata addresses are blocked by default. Allow specific hosts with `ASR_WEBHOOK_ALLOWED_HOSTS`, or set `ASR_WEBHOOK_ALLOW_PRIVATE=1` only on fully trusted networks.
+- **Secrets:** Gateway tokens are stored server-side in `backend/data/runtime_settings.json` (gitignored); the UI shows a masked value only.
 
-`backend/tools/` 提供 CLI 转写、说话人日志导出、CER 评测与公开数据集（AMI / AISHELL-4）抓取脚本，
-用于离线评测与回归测试，使用方法见 `backend/tools/README.md`。
+---
 
-## Known Issues
+## Tools & evaluation
 
-- ~~纪要/润色任务的进度表驻留内存，服务重启后丢失~~（已修复：任务状态落库 `ai_jobs`，重启后自动恢复 processing/failed 状态）
-- 租户日配额为软限制，极端并发下存在检查竞态（单机自用无影响）
-- 多用户体系（账户登录、会话）在路线图中，当前为 API Key 多租户模式（数据隔离已覆盖录音/搜索/纪要/模板）
+`backend/tools/` includes CLI transcription, diarization dumps, CER evaluation, and helpers for public datasets (AMI / AISHELL-4). See `backend/tools/README.md`.
 
-## 许可证
+---
+
+## Known limitations
+
+- ~~Summary/polish progress lived only in memory and was lost on restart~~ — **fixed**: state is stored in `ai_jobs` and restored after restart.
+- Tenant daily quotas are soft limits; extreme concurrency can race (irrelevant for single-user use).
+- Full account login/sessions are not built yet; multi-tenant isolation is via API keys (recordings, search, minutes, templates).
+- ASR models are primarily tuned for Chinese; English / mixed speech may need extra validation.
+- After changing search tokenization (Chinese bigrams), run a full reindex from the Search page so BM25 matches the new token style.
+
+---
+
+## License
 
 [Apache-2.0](LICENSE)
