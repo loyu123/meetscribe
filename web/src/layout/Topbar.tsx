@@ -16,7 +16,7 @@ const CRUMB: [RegExp, TKey][] = [
   [/^\/review/, 'crumb.review'],
 ]
 
-export default function Topbar() {
+export default function Topbar({ onBurger }: { onBurger?: () => void }) {
   const nav = useNavigate()
   const loc = useLocation()
   const [q, setQ] = useState('')
@@ -88,6 +88,8 @@ export default function Topbar() {
 
   return (
     <header className="topbar" ref={boxRef}>
+      {/* D3：移动端抽屉开关（桌面端 CSS 隐藏） */}
+      <span className="burger" onClick={onBurger}>☰</span>
       <span className="crumb">{t('top.crumbPrefix')} / <b>{label}</b></span>
       <div className="search" style={{ position: 'relative' }}>
         <input

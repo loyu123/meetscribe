@@ -692,3 +692,41 @@ body {
 .tabs .tb .n { font-size: 11px; color: var(--ink-400); font-weight: 400; }
 .turn.cur { scroll-margin: 90px 0; }
 
+/* ================= D3 移动端适配 ================= */
+.burger { display: none; }
+.scrim { position: fixed; inset: 0; background: rgba(15, 23, 42, .4); z-index: 55;
+  opacity: 0; pointer-events: none; transition: opacity .2s; }
+
+@media (max-width: 768px) {
+  .app { display: block; height: 100dvh; }
+  .main-col { height: 100dvh; }
+  .content { padding: 12px 12px 90px; -webkit-overflow-scrolling: touch; }
+
+  /* 侧边栏 → 抽屉 */
+  .side { position: fixed; left: 0; top: 0; bottom: 0; width: 272px; max-width: 82vw;
+    z-index: 60; transform: translateX(-105%); transition: transform .25s ease;
+    box-shadow: 0 8px 30px rgba(15, 23, 42, .18); }
+  .side.mob-open { transform: none; }
+  .scrim.show { opacity: 1; pointer-events: auto; }
+  .burger { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+    width: 34px; height: 34px; margin-right: 6px; border: 1px solid var(--line);
+    border-radius: var(--r-8, 8px); background: #fff; font-size: 16px; cursor: pointer;
+    color: var(--ink-600, #555); }
+
+  /* 顶栏：允许换行，主要按钮可触达 */
+  .topbar { flex-wrap: wrap; gap: 6px; padding: 10px 12px; }
+  .topbar .crumb { font-size: 11.5px; max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar .search { flex: 1 1 130px; min-width: 0; }
+  .topbar .tbtn { padding: 7px 10px; font-size: 12px; }
+
+  /* 常见双栏/横排区块纵向堆叠 */
+  .newtask .row, .nt-row { flex-direction: column; }
+  .callout, .sec-warn { font-size: 12px; }
+
+  /* 模态弹层不超屏 */
+  .modal { width: 94vw; max-width: 94vw; max-height: 88dvh; overflow: auto; }
+
+  /* 搜索聚合组头 */
+  .sgroup .sg-head .chip { margin-left: 0; }
+}
+

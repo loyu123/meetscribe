@@ -25,7 +25,7 @@ const Ico = ({ name, style }: { name: string; style?: React.CSSProperties }) => 
   </svg>
 )
 
-export default function Sidebar() {
+export default function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => void }) {
   const nav = useNavigate()
   const loc = useLocation()
   const [lang] = useLang()
@@ -92,7 +92,11 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="side">
+    <aside className={'side' + (open ? ' mob-open' : '')}
+      onClick={(e) => {
+        // D3：移动端点击任一导航项后自动收起抽屉
+        if (open && (e.target as HTMLElement).closest('.nav')) onClose?.()
+      }}>
       <div className="brand">
         <span className="wave"><i /><i /><i /><i /><i /></span>
         {lang === 'zh' ? '聆语会议' : 'MeetScribe'}
