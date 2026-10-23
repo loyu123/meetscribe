@@ -30,7 +30,6 @@ import uuid
 from flask import Flask, jsonify, request, send_file, Response, g
 
 import config
-import engine
 import polish
 import rewrite
 import store
@@ -63,6 +62,12 @@ def _json(path):
 # ---------------- 鉴权与租户隔离（FR-31 / FR-08，opt-in） ----------------
 def _current_tenant():
     return getattr(g, "tenant", None)
+
+
+def _engine():
+    """懒加载 engine（D2）：engine 依赖 torch/funasr，测试与 CI 导入 app 时不应拉起推理栈。"""
+    import engine
+    return engine
 
 
 def _tenant_can_access(rid):
@@ -227,7 +232,7 @@ def upload_complete(uid):
     denoise = 1 if str(data.get("denoise", "0")) in ("1", "true", "True") else 0
 
     # FR-03 上传校验：解码元信息，损坏/无法解码/时长为0 直接拒绝，不进识别队列
-    info = engine.probe_audio(final)
+    info = _engine().probe_audio(final)
     if not info["ok"]:
         try:
             os.remove(final)
@@ -293,7 +298,7 @@ def upload_simple():
     denoise = 1 if str(request.form.get("denoise", "0")) in ("1", "true", "True") else 0
 
     # FR-03 上传校验
-    info = engine.probe_audio(orig)
+    info = _engine().probe_audio(orig)
     if not info["ok"]:
         try:
             os.remove(orig)
@@ -323,7 +328,7 @@ def upload_simple():
     # FR-08 租户配额：上传即校验当日处理时长额度（opt-in，未配 API_KEYS 不生效）
     dur_s = 0
     try:
-        dur_s = float((engine.probe_duration_ms(orig) or 0)) / 1000.0
+        dur_s = float((_engine().probe_duration_ms(orig) or 0)) / 1000.0
     except Exception:
         dur_s = 0
     ok, why = ratelimit.can_enqueue(tid, dur_s)
@@ -928,6 +933,84 @@ def _transcript_markdown(rec, result):
     return "\n".join(lines) + "\n"
 
 
+# ---------------- B4 Word(.docx) 导出 ----------------
+def _docx_todos(doc, items):
+    for a in items or []:
+        line = "□ %s" % a.get("task", "")
+        if a.get("owner"):
+            line += " @%s" % a["owner"]
+        if a.get("deadline"):
+            line += "（截止 %s）" % a["deadline"]
+        doc.add_paragraph(line, style="List Bullet")
+
+
+def _build_docx(s, template, rec, result):
+    """纪要转 Word（有纪要时含结构化章节），并附全文转写（带时间戳）。"""
+    import io
+
+    from docx import Document
+    from docx.shared import Pt
+
+    doc = Document()
+    title = rec.get("filename") or rec.get("id") or "会议纪要"
+    if s and s.get("content"):
+        c = s["content"]
+        doc.add_heading(c.get("title") or title, level=0)
+        if c.get("one_line"):
+            p = doc.add_paragraph()
+            r = p.add_run(c["one_line"])
+            r.bold = True
+        if c.get("owner"):
+            doc.add_paragraph("备忘人：%s" % c["owner"])
+        if c.get("attendees"):
+            doc.add_paragraph("参与人：%s" % "、".join(c["attendees"]))
+
+        def add_points(pts):
+            for p in pts or []:
+                src = ""
+                if p.get("speaker") or p.get("timestamp"):
+                    src = "（%s %s）" % (p.get("speaker", ""), p.get("timestamp", ""))
+                doc.add_paragraph("%s%s" % (p.get("content", ""), src), style="List Bullet")
+
+        sections = c.get("sections")
+        if isinstance(sections, dict):  # 自定义模板
+            for sec, pts in sections.items():
+                doc.add_heading(sec, level=1)
+                add_points(pts)
+        elif template == "memo":
+            doc.add_heading("要点", level=1)
+            add_points(c.get("points"))
+            if c.get("todos"):
+                doc.add_heading("待办", level=1)
+                _docx_todos(doc, c["todos"])
+        else:
+            doc.add_heading("讨论要点", level=1)
+            add_points(c.get("points"))
+            if c.get("action_items"):
+                doc.add_heading("行动项", level=1)
+                _docx_todos(doc, c["action_items"])
+            if c.get("risks"):
+                doc.add_heading("风险", level=1)
+                for r in c["risks"]:
+                    lv = " [%s]" % r["level"] if r.get("level") else ""
+                    doc.add_paragraph("%s%s" % (r.get("content", ""), lv), style="List Bullet")
+    else:
+        doc.add_heading(title, level=0)
+        doc.add_paragraph("转写全文（带时间戳，尚未生成纪要）")
+
+    doc.add_heading("转写全文", level=1)
+    spk_map = {x["spk"]: x["label"] for x in result.get("speakers", [])}
+    for t in result.get("turns", []):
+        p = doc.add_paragraph()
+        r = p.add_run("[%s] %s：" % (_ms_ts(t.get("start_ms")), spk_map.get(t["spk"], "说话人?")))
+        r.font.size = Pt(9)
+        p.add_run(t.get("text", ""))
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
 @app.get("/api/v1/recordings/<rid>/export")
 def rec_export(rid):
     """P1-3 导出：fmt=txt 带时间戳纯文本转写；fmt=md Markdown 纪要（无纪要时回退转写全文）。"""
@@ -943,6 +1026,14 @@ def rec_export(rid):
     if not result:
         return jsonify({"error": "结果缺失"}), 400
     fmt = (request.args.get("fmt") or request.args.get("format") or "txt").lower()
+    if fmt == "docx":
+        s = store.get_summary(rid)
+        if s and s.get("status") != "done":
+            s = None
+        body = _build_docx(s, (s.get("template") if s else None) or "meeting", rec, result)
+        return Response(body,
+                        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        headers={"Content-Disposition": "attachment; filename=\"%s.docx\"" % rid})
     if fmt == "md":
         s = store.get_summary(rid)
         if s and s.get("content") and s.get("status") == "done":
@@ -1071,6 +1162,52 @@ def system_metrics():
         "reindex": _REINDEX,
         "uptime_s": int(time.time() - _START_TIME),
     })
+
+
+@app.get("/api/v1/system/metrics.txt")
+def metrics_prometheus():
+    """Prometheus 文本格式指标（C2，仅管理员）。
+
+    抓取配置示例（prometheus.yml）：
+      scrape_configs:
+        - job_name: meetscribe
+          metrics_path: /api/v1/system/metrics.txt
+          static_configs:
+            - targets: ["host:5000"]
+    （Bearer 鉴权场景在 scrape_config 加 authorization.credentials）
+    """
+    denied = _require_admin()
+    if denied:
+        return denied
+    s = store.stats_summary(tenant_id=None)
+    L = []
+
+    def g(name, mtype, help_text, val, labels=""):
+        L.append("# HELP %s %s" % (name, help_text))
+        L.append("# TYPE %s %s" % (name, mtype))
+        L.append("%s%s %s" % (name, labels, val))
+
+    g("meetscribe_uptime_seconds", "gauge", "Process uptime in seconds",
+      int(time.time() - _START_TIME))
+    for st, n in (s.get("jobs") or {}).items():
+        g("meetscribe_jobs", "gauge", "Jobs by status", n, '{status="%s"}' % st)
+    for st, n in (s.get("recordings") or {}).items():
+        g("meetscribe_recordings", "gauge", "Recordings by status", n, '{status="%s"}' % st)
+    q = s.get("queue") or {}
+    for k in ("queued", "processing"):
+        g("meetscribe_queue", "gauge", "Job queue depth by state", q.get(k, 0), '{state="%s"}' % k)
+    jt = s.get("jobs_today") or {}
+    g("meetscribe_jobs_today_total", "counter", "Jobs created today", jt.get("count", 0))
+    g("meetscribe_jobs_today_failed", "counter", "Jobs failed today", jt.get("failed", 0))
+    seg = s.get("segments") or {}
+    if seg.get("avg_confidence") is not None:
+        g("meetscribe_segments_avg_confidence", "gauge", "Average segment confidence",
+          seg["avg_confidence"])
+    g("meetscribe_segments_need_review", "gauge", "Segments pending review",
+      seg.get("need_review", 0))
+    for st, n in (s.get("chunks") or {}).items():
+        g("meetscribe_chunks", "gauge", "Chunks by status", n, '{status="%s"}' % st)
+    return Response("\n".join(L) + "\n", mimetype="text/plain; version=0.0.4; charset=utf-8")
 
 
 # ---------------- AI 问答（FR-19 延伸） ----------------
@@ -1399,12 +1536,13 @@ def transcribe_sync():
     preset = int(preset) if preset and int(preset) > 0 else None
     try:
         wav = os.path.join(config.AUDIO_DIR, "sync_" + os.path.basename(tmp) + ".wav")
-        engine.decode_to_wav(tmp, wav)
-        dur = engine.probe_duration_ms(wav)
-        res = engine.process_chunk(wav, 0, dur, wav + ".c.wav", hotword, preset)
+        eng = _engine()
+        eng.decode_to_wav(tmp, wav)
+        dur = eng.probe_duration_ms(wav)
+        res = eng.process_chunk(wav, 0, dur, wav + ".c.wav", hotword, preset)
         for s in res["sentences"]:
-            s["start"] = engine.fmt_ms(s["start_ms"])
-            s["end"] = engine.fmt_ms(s["end_ms"])
+            s["start"] = eng.fmt_ms(s["start_ms"])
+            s["end"] = eng.fmt_ms(s["end_ms"])
             s["spk"] = s["local_spk"]
         text = "".join(s["text"] for s in res["sentences"])
         return jsonify({"text": text, "sentences": res["sentences"],

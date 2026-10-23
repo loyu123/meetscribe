@@ -213,6 +213,7 @@ export default function MeetingDetail() {
             <a href={`/api/v1/recordings/${id}/subtitle?fmt=vtt`} download>{t('dt.exportVtt')}</a>
             <a href={`/api/v1/recordings/${id}/export?fmt=txt`} download>{t('dt.exportTxt')}</a>
             <a href={`/api/v1/recordings/${id}/export?fmt=md`} download>{t('dt.exportMd')}</a>
+            <a href={`/api/v1/recordings/${id}/export?fmt=docx`} download>{t('dt.exportDocx')}</a>
             <span className="lnk" style={{ cursor: 'pointer' }} onClick={copyTranscript}>{copyTsOk ? t('dt.copied') : t('dt.copyTs')}</span>
           </span>
         </div>

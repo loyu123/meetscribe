@@ -139,6 +139,7 @@ const zh = {
   'dt.exportVtt': '导出 VTT',
   'dt.exportTxt': '导出 TXT',
   'dt.exportMd': '导出 MD',
+  'dt.exportDocx': '导出 Word',
   'dt.copyTs': '复制转写',
   'dt.save': '保存',
   'dt.cancelEdit': '放弃',

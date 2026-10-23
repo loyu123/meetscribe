@@ -15,10 +15,16 @@ import numpy as np
 import requests
 
 import config
-import engine
 import store
 import search
 import ratelimit
+
+
+def _engine():
+    """懒加载 engine（D2）：engine 依赖 torch/funasr 重型库，
+    测试与 CI 只需 API/存储层，导入 app→worker 时不应被迫拉起推理栈。"""
+    import engine
+    return engine
 
 _threads = []
 _stop = threading.Event()
@@ -84,14 +90,14 @@ def process_job(job):
         store.update_job(jid, stage="解码音频", status="processing")
         src = rec["path"]
         wav = os.path.join(config.AUDIO_DIR, rid + ".norm.wav")
-        engine.decode_to_wav(src, wav, denoise=denoise)
-        duration_ms = engine.probe_duration_ms(wav)
+        _engine().decode_to_wav(src, wav, denoise=denoise)
+        duration_ms = _engine().probe_duration_ms(wav)
         store.set_recording_status(rid, "processing", duration_ms=duration_ms)
 
         # 2) 分片计划（已存在则复用，便于重跑失败段）
         if not store.get_chunks(jid):
-            silences = engine.detect_silences_ms(wav)
-            ranges = engine.plan_chunks(duration_ms, silences, config.CHUNK_SECONDS * 1000)
+            silences = _engine().detect_silences_ms(wav)
+            ranges = _engine().plan_chunks(duration_ms, silences, config.CHUNK_SECONDS * 1000)
             store.create_chunks(jid, ranges)
         store.update_job(jid, stage="转写中")
 
@@ -111,7 +117,7 @@ def process_job(job):
         if cents:
             keys = [(c[0], c[1]) for c in cents]
             mat = np.stack([c[2] for c in cents], axis=0)
-            labels = engine.cluster_speakers(mat, config.SPK_DISTANCE_THRESHOLD, preset)
+            labels = _engine().cluster_speakers(mat, config.SPK_DISTANCE_THRESHOLD, preset)
             mapping = {keys[i]: int(labels[i]) for i in range(len(keys))}
             store.set_segments_global_spk(jid, mapping)
             n_spk = len(set(mapping.values()))
@@ -205,7 +211,7 @@ def _process_chunks_pool(jid, wav, hotword, preset, backend):
             idx, s, e = ch["idx"], ch["start_ms"], ch["end_ms"]
             attempts_before = ch["attempts"]
             store.set_chunk_status(jid, idx, "processing", inc_attempt=True)
-            fut = engine.submit_chunk(wav, s, e, config.AUDIO_DIR, hotword, preset, backend)
+            fut = _engine().submit_chunk(wav, s, e, config.AUDIO_DIR, hotword, preset, backend)
             futures[idx] = (fut, attempts_before, s, e)
         requeue = False
         for idx, (fut, attempts_before, s, e) in futures.items():
@@ -221,7 +227,7 @@ def _process_chunks_pool(jid, wav, hotword, preset, backend):
                     elapsed_ms / 1000.0, " FALLBACK" if res.get("fallback") else ""))
             except BrokenProcessPool:
                 # 池进程崩溃（OOM/CUDA）：销毁旧池，下轮 submit 自动重建（engine._get_infer_pool）
-                engine.shutdown_infer_pool()
+                _engine().shutdown_infer_pool()
                 store.set_chunk_status(jid, idx, "pending", error="infer pool broken, rebuilt")
                 _log(jid, "chunk_requeue", "idx=%d pool broken -> rebuilt" % idx)
                 requeue = True
@@ -266,7 +272,7 @@ def _process_chunks_serial(jid, wav, tmp_chunk, hotword, preset, backend):
             store.set_chunk_status(jid, idx, "processing", inc_attempt=True)
             t0 = time.perf_counter()  # P2-2：分片耗时
             try:
-                res = engine.process_chunk(wav, s, e, tmp_chunk, hotword, preset, backend)
+                res = _engine().process_chunk(wav, s, e, tmp_chunk, hotword, preset, backend)
                 elapsed_ms = int((time.perf_counter() - t0) * 1000)
                 _save_chunk(jid, idx, res)
                 store.set_chunk_status(jid, idx, "done")
@@ -307,7 +313,7 @@ def _build_result(jid, rid, rec, duration_ms, n_spk, prog, label_overrides=None)
                 words = None
         out_segs.append({
             "start_ms": s["start_ms"], "end_ms": s["end_ms"],
-            "start": engine.fmt_ms(s["start_ms"]), "end": engine.fmt_ms(s["end_ms"]),
+            "start": _engine().fmt_ms(s["start_ms"]), "end": _engine().fmt_ms(s["end_ms"]),
             "spk": g if g is not None else s["local_spk"],
             "text": s["text"],
             "need_review": s.get("need_review", 0),
@@ -347,7 +353,7 @@ def _build_result(jid, rid, rec, duration_ms, n_spk, prog, label_overrides=None)
     review = [s for s in out_segs if s.get("need_review")]
     return {
         "recording_id": rid, "job_id": jid, "filename": rec["filename"],
-        "duration_ms": duration_ms, "duration": engine.fmt_ms(duration_ms),
+        "duration_ms": duration_ms, "duration": _engine().fmt_ms(duration_ms),
         "num_speakers": n_spk or len(speaker_ids), "speakers": speakers,
         "segments": out_segs, "turns": turns, "review": review,
         "text": "\n".join(lines),

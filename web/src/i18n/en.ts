@@ -134,6 +134,7 @@ const en: Record<keyof typeof zh, string> = {
   'dt.exportVtt': 'Export VTT',
   'dt.exportTxt': 'Export TXT',
   'dt.exportMd': 'Export MD',
+  'dt.exportDocx': 'Export Word',
   'dt.copyTs': 'Copy transcript',
   'dt.save': 'Save',
   'dt.cancelEdit': 'Discard',
