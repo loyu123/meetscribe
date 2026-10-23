@@ -43,11 +43,46 @@ def _result_path(jid):
     return os.path.join(config.RESULT_DIR, jid + ".json")
 
 
+# ---------------- Webhook SSRF 防护（阶段 A2） ----------------
+def _webhook_url_allowed(url):
+    """校验 callback_url 是否允许发起出站请求。返回 (ok, reason)。
+
+    规则：仅 http/https；主机名解析后的每个 IP 都不得为 本机回环/私网(RFC1918)/
+    链路本地/保留/组播/未指定（含 169.254.169.254 云元数据）。
+    逃生口：ASR_WEBHOOK_ALLOW_PRIVATE=1 整体关闭校验；ASR_WEBHOOK_ALLOWED_HOSTS
+    逗号分隔域名白名单（精确匹配，不走解析检查）。
+    """
+    if config.WEBHOOK_ALLOW_PRIVATE:
+        return True, ""
+    try:
+        from urllib.parse import urlparse
+        p = urlparse(url)
+        if p.scheme not in ("http", "https"):
+            return False, "scheme not http/https"
+        host = (p.hostname or "").lower()
+        if not host:
+            return False, "no host"
+        if host in config.WEBHOOK_ALLOWED_HOSTS:
+            return True, ""
+        import ipaddress
+        import socket
+        for info in socket.getaddrinfo(host, None):
+            ip = ipaddress.ip_address(info[4][0])
+            if (ip.is_private or ip.is_loopback or ip.is_link_local
+                    or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+                return False, "blocked address %s" % ip
+        return True, ""
+    except Exception as e:  # noqa: BLE001 解析失败一律拒绝
+        return False, "invalid url: %s" % e
+
+
 def _notify(callback_url, payload, jid):
-    # 注意：callback_url 来自任务提交方且未做内网地址过滤（SSRF 面）。
-    # 单机/可信网络部署可忽略；多租户开放时建议在网关层限制出站目标，
-    # 或在此处增加私网地址黑名单校验。
     if not callback_url:
+        return
+    ok, reason = _webhook_url_allowed(callback_url)
+    if not ok:
+        # SSRF 防护（A2）：拒绝时记录事件，任务本身不受影响
+        _log(jid, "webhook_blocked", "%s: %s" % (reason, callback_url[:200]))
         return
     try:
         requests.post(callback_url, json=payload, timeout=10)

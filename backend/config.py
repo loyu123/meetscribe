@@ -126,6 +126,14 @@ API_KEY_TENANTS = _parse_api_keys()  # secret -> tenant
 MEDIA_SIGN_SECRET = os.environ.get("ASR_MEDIA_SIGN_SECRET", "")
 MEDIA_SIGN_TTL = int(os.environ.get("ASR_MEDIA_SIGN_TTL", "3600"))
 
+# ---- Webhook 回调 SSRF 防护（阶段 A2）----
+# callback_url 会由服务端发起出站请求，默认拒绝指向本机/私网(RFC1918)/链路本地/
+# 云元数据(169.254.169.254)等地址，防内网探测。自托管且回调目标确实在内网时，
+# 可 ASR_WEBHOOK_ALLOW_PRIVATE=1 关闭校验，或用 ASR_WEBHOOK_ALLOWED_HOSTS 精确放行域名。
+WEBHOOK_ALLOW_PRIVATE = os.environ.get("ASR_WEBHOOK_ALLOW_PRIVATE", "0") in ("1", "true", "True")
+WEBHOOK_ALLOWED_HOSTS = [h.strip().lower() for h in
+                         os.environ.get("ASR_WEBHOOK_ALLOWED_HOSTS", "").split(",") if h.strip()]
+
 # ---- 租户级限流 / 配额（FR-08，opt-in，需先启用 ASR_API_KEYS）----
 # JSON 映射：tenant -> {"max_concurrent": 并发任务数, "daily_seconds": 日处理时长配额(秒)}
 # 通配键 "*" 作为未显式配置租户的默认限额；管理员/共享租户("") 始终不限。
