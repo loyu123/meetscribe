@@ -101,6 +101,7 @@ def process_job(job):
         store.update_job(jid, stage="说话人合并")
         cents = store.get_all_centroids(jid)
         n_spk = None
+        vp_labels = {}  # P3-3：声纹库自动匹配的说话人名称 {global_spk: name}
         if cents:
             keys = [(c[0], c[1]) for c in cents]
             mat = np.stack([c[2] for c in cents], axis=0)
@@ -109,9 +110,24 @@ def process_job(job):
             store.set_segments_global_spk(jid, mapping)
             n_spk = len(set(mapping.values()))
 
+            # P3-3 声纹匹配：各全局说话人质心与本租户声纹库比对，达阈值即采用库名
+            if config.VOICEPRINT_ENABLED:
+                try:
+                    lib = store.list_voiceprints(tenant, with_vectors=True)
+                    if lib:
+                        cents_g = store.speaker_centroids_by_global(jid)
+                        for g, v in cents_g.items():
+                            hit, sim = store.match_voiceprint(v, lib)
+                            if hit and sim >= config.VOICEPRINT_THRESHOLD:
+                                vp_labels[int(g)] = hit["name"]
+                                _log(jid, "voiceprint_match",
+                                     "spk=%s -> %s sim=%.3f" % (g, hit["name"], sim))
+                except Exception as e:  # noqa: BLE001 声纹匹配失败不阻塞转写
+                    print("[worker] 声纹匹配失败: %r" % e, flush=True)
+
         # 5) 汇总结果
         prog = store.refresh_job_progress(jid)
-        result = _build_result(jid, rid, rec, duration_ms, n_spk, prog)
+        result = _build_result(jid, rid, rec, duration_ms, n_spk, prog, label_overrides=vp_labels)
         with open(_result_path(jid), "w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
 
@@ -272,7 +288,7 @@ def _process_chunks_serial(jid, wav, tmp_chunk, hotword, preset, backend):
             store.refresh_job_progress(jid)
 
 
-def _build_result(jid, rid, rec, duration_ms, n_spk, prog):
+def _build_result(jid, rid, rec, duration_ms, n_spk, prog, label_overrides=None):
     segs = store.get_segments(jid)
     out_segs = []
     for s in segs:
@@ -308,7 +324,14 @@ def _build_result(jid, rid, rec, duration_ms, n_spk, prog):
                           "start": s["start"], "end": s["end"], "text": s["text"]})
 
     speaker_ids = sorted({s["spk"] for s in out_segs})
-    speakers = [{"spk": k, "label": "说话人 %d" % (i + 1)} for i, k in enumerate(speaker_ids)]
+    # P3-3：声纹库匹配到的说话人直接使用库名（可读名贯穿全文/纪要/检索）
+    speakers = []
+    for i, k in enumerate(speaker_ids):
+        nm = (label_overrides or {}).get(k)
+        sp = {"spk": k, "label": nm or "说话人 %d" % (i + 1)}
+        if nm:
+            sp["matched"] = True
+        speakers.append(sp)
     label_map = {x["spk"]: x["label"] for x in speakers}
 
     lines = []

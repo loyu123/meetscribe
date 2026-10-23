@@ -575,6 +575,10 @@ body {
   padding: 1px 6px; font-size: 11px; font-family: inherit; outline: none; background: #fff; color: var(--ink-900); }
 .turn .lab .spk-ren .ok { cursor: pointer; font-weight: 700; }
 .turn .lab .spk-ren .cc { cursor: pointer; opacity: .6; }
+.turn .lab .spk-ren .vp-save { display: inline-flex; align-items: center; gap: 3px;
+  font-size: 10.5px; color: var(--ink-500); cursor: pointer; white-space: nowrap; }
+.vp-item { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line, #e5e8ef);
+  border-radius: var(--r-8, 8px); padding: 6px 10px; margin-bottom: 6px; font-size: 12.5px; }
 
 /* ================= v1.1：安全引导（P0-3） ================= */
 .sec-warn { display: flex; align-items: flex-start; gap: 8px; background: var(--orange-50, #fdf3e4);

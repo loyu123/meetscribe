@@ -141,6 +141,34 @@ export async function renameSpeaker(rid: string, spk: string | number, label: st
   return (await r.json()) as { ok: boolean; error?: string }
 }
 
+// 跨会议声纹库（P3-3）：保存/合并某录音某说话人的声纹质心，后续新会议自动识别
+export interface VoiceprintItem {
+  id: string
+  tenant_id: string
+  name: string
+  samples: number
+  source_recording: string | null
+  created_at: string
+  updated_at: string
+}
+
+export async function saveVoiceprint(rid: string, spk: string | number, name: string): Promise<{ ok: boolean; id?: string; error?: string }> {
+  const r = await fetch('/api/v1/voiceprints', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ recording_id: rid, spk, name }),
+  })
+  return (await r.json()) as { ok: boolean; id?: string; error?: string }
+}
+
+export const getVoiceprints = () =>
+  getJSON<{ voiceprints: VoiceprintItem[] }>('/voiceprints').then((d) => d.voiceprints)
+
+export async function deleteVoiceprint(id: string): Promise<{ ok: boolean; error?: string }> {
+  const r = await fetch(`/api/v1/voiceprints/${id}`, { method: 'DELETE', headers: authHeaders() })
+  return (await r.json()) as { ok: boolean; error?: string }
+}
+
 export const getJob = (jid: string) =>
   getJSON<JobDetailResponse>(`/jobs/${jid}`)
 

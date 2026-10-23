@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getRecording, postPolish, getPolish, editTurn, renameSpeaker } from '../api/recordings'
+import { getRecording, postPolish, getPolish, editTurn, renameSpeaker, saveVoiceprint } from '../api/recordings'
 import type { RecordingDetailResponse, Result, Turn } from '../api/types'
 import { t } from '../i18n'
 
@@ -22,7 +22,7 @@ export default function TranscriptPane({ id, detail, audioRef, curMs, locate, on
   const [view, setView] = useState<View>('orig')
   const [polish, setPolish] = useState<{ status: string; result?: Result; error?: string }>({ status: 'not_started' })
   const [edit, setEdit] = useState<{ i: number; val: string } | null>(null)
-  const [renaming, setRenaming] = useState<{ spk: string; val: string } | null>(null)
+  const [renaming, setRenaming] = useState<{ spk: string; val: string; vp?: boolean } | null>(null)
   const [renamingBusy, setRenamingBusy] = useState(false)
   const timer = useRef<number | null>(null)
 
@@ -78,12 +78,20 @@ export default function TranscriptPane({ id, detail, audioRef, curMs, locate, on
     const val = renaming.val.trim()
     if (!val) { setRenaming(null); return }
     const cur = labelOf(renaming.spk)
-    if (val === cur) { setRenaming(null); return }
+    const saveVp = renaming.vp && val !== cur
+    if (val === cur && !saveVp) { setRenaming(null); return }
     setRenamingBusy(true)
     try {
-      const r = await renameSpeaker(id, renaming.spk, val)
-      if (r.error) { alert(t('c.saveFailed', { err: r.error })) }
-      else onSpeakersChanged?.()
+      if (val !== cur) {
+        const r = await renameSpeaker(id, renaming.spk, val)
+        if (r.error) { alert(t('c.saveFailed', { err: r.error })); return }
+        onSpeakersChanged?.()
+      }
+      // P3-3：勾选后把该说话人质心存入声纹库，后续新会议自动识别此人
+      if (saveVp) {
+        const v = await saveVoiceprint(id, renaming.spk, val)
+        if (v.error) alert(t('c.saveFailed', { err: v.error }))
+      }
     } catch (e) {
       alert(t('c.saveFailed', { err: String(e instanceof Error ? e.message : e) }))
     } finally {
@@ -148,6 +156,10 @@ export default function TranscriptPane({ id, detail, audioRef, curMs, locate, on
                   />
                   <span className="ok" title={t('c.save')} onClick={doRename}>{renamingBusy ? '…' : '✓'}</span>
                   <span className="cc" onClick={() => setRenaming(null)}>✕</span>
+                  <label className="vp-save" onClick={(e) => e.stopPropagation()}>
+                    <input type="checkbox" checked={!!renaming.vp} onChange={(e) => setRenaming({ ...renaming, vp: e.target.checked })} />
+                    {t('tp.vpSave')}
+                  </label>
                 </span>
               ) : (
                 <span

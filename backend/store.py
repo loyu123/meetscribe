@@ -99,6 +99,17 @@ CREATE TABLE IF NOT EXISTS chunk_speakers (
   centroid BLOB,
   PRIMARY KEY (job_id, chunk_idx, local_spk)
 );
+CREATE TABLE IF NOT EXISTS voiceprints (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT DEFAULT '',
+  name TEXT NOT NULL,
+  vector BLOB NOT NULL,          -- 归一化质心（float32）
+  samples INTEGER DEFAULT 1,     -- 合并次数（同名再次保存时加权平均）
+  source_recording TEXT,
+  created_at TEXT,
+  updated_at TEXT,
+  UNIQUE(tenant_id, name)
+);
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   job_id TEXT,
@@ -767,6 +778,128 @@ def set_segments_global_spk(jid, mapping):
         for r in rows:
             g = mapping.get((r["chunk_idx"], r["local_spk"]))
             c.execute("UPDATE segments SET global_spk=? WHERE id=?", (g, r["id"]))
+
+
+def speaker_centroids_by_global(jid):
+    """按聚类后 global_spk 汇总各分片质心的均值（归一化），返回 {global_spk: np.ndarray}。
+
+    P3-3 声纹库：用于「保存说话人声纹」与「新会议自动匹配」。
+    """
+    import numpy as np
+
+    with conn() as c:
+        rows = c.execute(
+            "SELECT s.global_spk AS g, cs.centroid FROM chunk_speakers cs "
+            "JOIN segments s ON s.job_id=cs.job_id AND s.chunk_idx=cs.chunk_idx "
+            "AND s.local_spk=cs.local_spk WHERE cs.job_id=?", (jid,)).fetchall()
+    acc = {}
+    for r in rows:
+        g = r["g"]
+        if g is None:
+            continue
+        try:
+            v = np.frombuffer(r["centroid"], dtype=np.float32)
+        except Exception:
+            continue
+        acc.setdefault(g, []).append(v)
+    out = {}
+    for g, vs in acc.items():
+        m = np.mean(np.stack(vs, axis=0), axis=0)
+        n = np.linalg.norm(m)
+        if n > 0:
+            out[g] = (m / n).astype(np.float32)
+    return out
+
+
+# ---------------- voiceprints（P3-3 跨会议声纹库：仅存本机，可删除/关闭） ----------------
+def list_voiceprints(tenant_id=None, with_vectors=False):
+    """返回声纹列表；tenant_id=None 为管理员/未鉴权。
+
+    with_vectors=False（默认）不含向量本体（API 序列化用）；
+    匹配场景（worker / 自检）传 True 以读取 vector。
+    """
+    cols = ("id,tenant_id,name,vector,samples,source_recording,created_at,updated_at"
+            if with_vectors else
+            "id,tenant_id,name,samples,source_recording,created_at,updated_at")
+    with conn() as c:
+        if tenant_id is None:
+            rows = c.execute("SELECT %s FROM voiceprints ORDER BY updated_at DESC" % cols).fetchall()
+        else:
+            rows = c.execute(
+                "SELECT %s FROM voiceprints WHERE tenant_id=? OR tenant_id='' ORDER BY updated_at DESC" % cols,
+                (tenant_id,)).fetchall()
+    return [dict(x) for x in rows]
+
+
+def save_voiceprint(name, vector, tenant_id="", source_rid=None):
+    """保存/合并声纹：同名（同租户）已存在则新旧质心加权平均。返回 (id, error)。"""
+    import numpy as np
+
+    name = (name or "").strip()
+    if not name:
+        return None, "名称不能为空"
+    if len(name) > 30:
+        return None, "名称过长（最多 30 字）"
+    v = np.asarray(vector, dtype=np.float32)
+    n = np.linalg.norm(v)
+    if n <= 0:
+        return None, "无效的说话人向量"
+    v = (v / n).astype(np.float32)
+    with conn() as c:
+        row = c.execute("SELECT * FROM voiceprints WHERE tenant_id=? AND name=?",
+                        (tenant_id, name)).fetchone()
+        if row:
+            old = np.frombuffer(row["vector"], dtype=np.float32)
+            k = int(row["samples"] or 1)
+            merged = (old * k + v) / (k + 1)
+            mn = np.linalg.norm(merged)
+            if mn > 0:
+                merged = merged / mn
+            c.execute(
+                "UPDATE voiceprints SET vector=?, samples=?, updated_at=? WHERE id=?",
+                (merged.astype(np.float32).tobytes(), k + 1, now(), row["id"]))
+            return row["id"], None
+        vid = uuid.uuid4().hex
+        c.execute(
+            "INSERT INTO voiceprints(id,tenant_id,name,vector,samples,source_recording,created_at,updated_at) "
+            "VALUES(?,?,?,?,1,?,?,?)",
+            (vid, tenant_id, name, v.tobytes(), source_rid, now(), now()))
+        return vid, None
+
+
+def delete_voiceprint(vid, tenant_id=None):
+    """删除声纹；tenant_id 提供时仅允许删本租户的。返回是否删除。"""
+    with conn() as c:
+        if tenant_id is None:
+            cur = c.execute("DELETE FROM voiceprints WHERE id=?", (vid,))
+        else:
+            cur = c.execute("DELETE FROM voiceprints WHERE id=? AND (tenant_id=? OR tenant_id='')",
+                            (vid, tenant_id))
+        return cur.rowcount > 0
+
+
+def match_voiceprint(vector, lib):
+    """在声纹列表（list_voiceprints 结果）中找余弦相似度最高的项。返回 (item, sim) 或 (None, 0)。"""
+    import numpy as np
+
+    v = np.asarray(vector, dtype=np.float32)
+    n = np.linalg.norm(v)
+    if n <= 0 or not lib:
+        return None, 0.0
+    v = v / n
+    best, best_sim = None, 0.0
+    for it in lib:
+        try:
+            w = np.frombuffer(it["vector"], dtype=np.float32)
+        except Exception:
+            continue
+        wn = np.linalg.norm(w)
+        if wn <= 0:
+            continue
+        sim = float(np.dot(v, w / wn))
+        if sim > best_sim:
+            best, best_sim = it, sim
+    return best, best_sim
 
 
 def get_segments(jid):

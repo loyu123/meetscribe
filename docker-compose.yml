@@ -20,8 +20,8 @@ services:
     ports:
       - "5000:5000"
     environment:
-      # ---- AI 网关（纪要/问答/检索/embedding 必需）----
-      ASR_GATEWAY_URL: ${ASR_GATEWAY_URL:-http://192.168.8.174:18300/v1}
+      # ---- AI 网关（纪要/问答/检索/embedding 必需；也可启动后在 Web 设置页填写）----
+      ASR_GATEWAY_URL: ${ASR_GATEWAY_URL:-}
       ASR_GATEWAY_TOKEN: ${ASR_GATEWAY_TOKEN:-}
       # ---- 安全（公网部署务必配置）----
       ASR_API_KEYS: ${ASR_API_KEYS:-}
@@ -46,7 +46,7 @@ services:
     ports:
       - "5000:5000"
     environment:
-      ASR_GATEWAY_URL: ${ASR_GATEWAY_URL:-http://192.168.8.174:18300/v1}
+      ASR_GATEWAY_URL: ${ASR_GATEWAY_URL:-}
       ASR_GATEWAY_TOKEN: ${ASR_GATEWAY_TOKEN:-}
       ASR_API_KEYS: ${ASR_API_KEYS:-}
       ASR_MEDIA_SIGN_SECRET: ${ASR_MEDIA_SIGN_SECRET:-}

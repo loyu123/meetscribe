@@ -40,6 +40,11 @@ CHUNK_SECONDS = int(os.environ.get("ASR_CHUNK_SECONDS", "300"))
 SPK_DISTANCE_THRESHOLD = float(os.environ.get("ASR_SPK_THRESHOLD", "0.5"))
 # 轮次合并的最大间隔(ms)：同说话人相邻句间隔超过它就不再并入同一轮
 TURN_MAX_GAP_MS = int(os.environ.get("ASR_TURN_GAP_MS", "1500"))
+# 跨会议声纹库（P3-3）：转写完成后把说话人质心与本租户已存声纹比对，
+# 余弦相似度 ≥ 阈值即自动采用库名称。声纹仅存本机 SQLite，可随时删除；
+# 关闭：ASR_VOICEPRINT_ENABLED=0。阈值默认 0.75（宁缺勿错，可 ASR_VOICEPRINT_THRESHOLD 调整）。
+VOICEPRINT_ENABLED = os.environ.get("ASR_VOICEPRINT_ENABLED", "1") in ("1", "true", "True")
+VOICEPRINT_THRESHOLD = float(os.environ.get("ASR_VOICEPRINT_THRESHOLD", "0.75"))
 # 热词：默认开启但**词表要短**（实测短表可改善远场场景：20.1%→11.7%，且不伤其他场景；
 # 过长的表会因解码偏置导致循环/丢字）。可用 ASR_HOTWORDS 覆盖，或用 ASR_HOTWORDS_ENABLED=0 关闭。
 # 注：原默认词表（智聆 智聆云 李响 Tom）已过时废弃（2026-10），默认置空；

@@ -185,6 +185,7 @@ const en: Record<keyof typeof zh, string> = {
   'tp.polishFailMsg': 'Polish failed: {err}',
   'tp.spkUnknown': 'Speaker?',
   'tp.renameTip': 'Click to rename (this meeting; syncs search & export)',
+  'tp.vpSave': 'Save as voiceprint (auto-recognize across meetings)',
   'tp.editTip': 'Fix this sentence (syncs search & export)',
 
   'job.queue': 'Queued',
@@ -263,6 +264,10 @@ const en: Record<keyof typeof zh, string> = {
   'set.apiKey': 'API access key',
   'set.apiKeyPh': 'Enter the access key assigned by the server (sk-…)',
   'set.apiKeyTip': 'Required when the server enables ASR_API_KEYS; stored only in this browser and sent automatically with requests.',
+  'set.vpTitle': 'Voiceprints (cross-meeting speaker recognition)',
+  'set.vpTip': 'Check "Save as voiceprint" when renaming a speaker to enroll; new meetings are matched automatically (threshold 0.75). Voice features are stored locally only and can be deleted anytime; set ASR_VOICEPRINT_ENABLED=0 to disable.',
+  'set.vpEmpty': 'No voiceprints yet. Click a speaker name on a transcript, then check "Save as voiceprint".',
+  'set.vpDelConfirm': 'Delete this voiceprint? New meetings will no longer auto-recognize this person.',
   'se.relevance': 'Relevance {p}%',
   'se.jumpTo': 'Jump to transcript',
   'se.clickHint': 'Click a card to open the transcript at this sentence',

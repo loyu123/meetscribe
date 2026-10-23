@@ -67,10 +67,11 @@ def _now():
 
 
 # ---------------- 切块（FR-26） ----------------
-def _build_turns(rid, jid):
+def _build_turns(rid, jid, labels=None):
     """从 segments 表按说话人轮次聚合，返回与前端 turns 对齐的切块列表。
 
     与 worker._build_result 的轮次合并规则保持一致：同说话人且间隔 <= 阈值才并入。
+    labels: {spk: 可读名}（来自结果 JSON 的重命名/声纹匹配标签），缺省回退「说话人 N」。
     返回 [{"start_ms","end_ms","spk","label","text"}]
     """
     segs = store.get_segments(jid)
@@ -97,8 +98,10 @@ def _build_turns(rid, jid):
     label_map = {}
     for i, k in enumerate(sorted({t["spk"] for t in turns})):
         label_map[k] = "说话人 %d" % (i + 1)
+    labels = {int(k): v for k, v in (labels or {}).items()}
     for t in turns:
-        t["label"] = label_map.get(t["spk"], "说话人?")
+        # P1-1/P3-3：优先使用结果 JSON 的可读名（重命名/声纹匹配），保证检索 snippet 一致
+        t["label"] = labels.get(t["spk"]) or label_map.get(t["spk"], "说话人?")
     return turns
 
 
@@ -135,7 +138,15 @@ def index_recording(rid):
     if rec.get("status") not in ("done", "partial"):
         return 0
     store.set_index_status(rid, "indexing")
-    turns = _build_turns(rid, job["id"])
+    # P1-1/P3-3：读取结果 JSON 中的说话人标签（重命名/声纹匹配后的可读名）
+    labels = {}
+    try:
+        with open(job["result_path"], "r", encoding="utf-8") as f:
+            for s in (json.load(f).get("speakers") or []):
+                labels[s.get("spk")] = s.get("label")
+    except Exception:
+        labels = {}
+    turns = _build_turns(rid, job["id"], labels=labels)
     turns = [t for t in turns if t["text"].strip()]
     if not turns:
         delete_index(rid)

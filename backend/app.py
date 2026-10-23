@@ -616,6 +616,51 @@ def rec_media(rid):
     return jsonify({"error": "音频不存在"}), 404
 
 
+# ---------------- 跨会议声纹库（P3-3：仅存本机，可删除，ASR_VOICEPRINT_ENABLED=0 可整体关闭） ----------------
+@app.get("/api/v1/voiceprints")
+def voiceprints_list():
+    t = _current_tenant()
+    return jsonify({"voiceprints": store.list_voiceprints(tenant_id=t if (t and t != "*") else None)})
+
+
+@app.post("/api/v1/voiceprints")
+def voiceprints_save():
+    """把某录音的某说话人质心保存/合并入声纹库。body {recording_id, spk, name}。"""
+    data = request.get_json(silent=True) or {}
+    rid = str(data.get("recording_id") or "")
+    spk = str(data.get("spk", "")).strip()
+    name = (data.get("name") or "").strip()
+    if not rid or not spk or not name:
+        return jsonify({"error": "recording_id / spk / name 不能为空"}), 400
+    if len(name) > 30:
+        return jsonify({"error": "名称过长（最多 30 字）"}), 400
+    if not _tenant_can_access(rid):
+        return jsonify({"error": "录音不存在"}), 404
+    job = store.latest_result_job(rid)
+    if not job:
+        return jsonify({"error": "该录音暂无转写结果"}), 400
+    try:
+        v = store.speaker_centroids_by_global(job["id"]).get(int(spk))
+    except ValueError:
+        return jsonify({"error": "spk 非法"}), 400
+    if v is None:
+        return jsonify({"error": "未找到该说话人的声纹特征（可能未开启说话人分离）"}), 404
+    t = _current_tenant()
+    vid, err = store.save_voiceprint(name, v, tenant_id=t if (t and t != "*") else "", source_rid=rid)
+    if err:
+        return jsonify({"error": err}), 400
+    return jsonify({"ok": True, "id": vid})
+
+
+@app.delete("/api/v1/voiceprints/<vid>")
+def voiceprints_delete(vid):
+    t = _current_tenant()
+    tenant_param = t if (t and t != "*") else None
+    if not store.delete_voiceprint(vid, tenant_id=tenant_param):
+        return jsonify({"error": "声纹不存在或无权删除"}), 404
+    return jsonify({"ok": True})
+
+
 @app.get("/api/v1/review")
 def review_list():
     """复核队列（P2-4）：支持 recording_id / reason / conf_max / offset 筛选。"""

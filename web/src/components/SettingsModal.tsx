@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { loadSettings, saveSettings, type AppSettings } from '../constants'
 import { getGateway, saveGateway, testGateway, getSystemInfo, type GatewaySettings, type SystemInfo } from '../api/settings'
+import { getVoiceprints, deleteVoiceprint, type VoiceprintItem } from '../api/recordings'
 import { setApiKey } from '../api/client'
 import { t, useLang } from '../i18n'
 
@@ -17,6 +18,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const [gwMsg, setGwMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [testing, setTesting] = useState(false)
   const [savingGw, setSavingGw] = useState(false)
+  const [vps, setVps] = useState<VoiceprintItem[] | null>(null)
 
   useEffect(() => {
     getGateway().then((g) => {
@@ -27,7 +29,15 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
       setRerank(g.rerank_model)
     }).catch((e) => setGwMsg({ ok: false, text: t('c.loadFailed', { err: String(e instanceof Error ? e.message : e) }) }))
     getSystemInfo().then(setSys).catch(() => {})
+    getVoiceprints().then(setVps).catch(() => setVps([]))
   }, [])
+
+  const delVp = async (id: string) => {
+    if (!confirm(t('set.vpDelConfirm'))) return
+    const r = await deleteVoiceprint(id)
+    if (r.error) alert(r.error)
+    setVps((l) => (l ?? []).filter((x) => x.id !== id))
+  }
 
   const saveGw = async () => {
     setSavingGw(true); setGwMsg(null)
@@ -160,6 +170,23 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               {t('sec.warnTitle')}{t('sec.warnBody')}
             </div>
           )}
+
+          {/* P3-3 声纹库管理：仅存本机，可删除 */}
+          <label className="fld">{t('set.vpTitle')}</label>
+          <div style={{ fontSize: 11, color: 'var(--ink-400)', marginBottom: 6, lineHeight: 1.6 }}>
+            {t('set.vpTip')}
+          </div>
+          {vps && vps.length === 0 && (
+            <div style={{ fontSize: 12, color: 'var(--ink-500)' }}>{t('set.vpEmpty')}</div>
+          )}
+          {(vps ?? []).map((v) => (
+            <div key={v.id} className="vp-item">
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {v.name}<span style={{ color: 'var(--ink-400)', fontSize: 11 }}> · ×{v.samples}</span>
+              </span>
+              <span className="chip k" style={{ cursor: 'pointer', flexShrink: 0 }} onClick={() => delVp(v.id)}>{t('tp2.del')}</span>
+            </div>
+          ))}
 
           <div className="m-tip" style={{ marginTop: 12, fontSize: 11, color: 'var(--ink-400)' }}>
             {t('set.tip')}

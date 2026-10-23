@@ -191,6 +191,7 @@ const zh = {
   'tp.polishFailMsg': '润色失败：{err}',
   'tp.spkUnknown': '说话人?',
   'tp.renameTip': '点击重命名（本会议内生效，同步检索与导出）',
+  'tp.vpSave': '存为声纹（跨会议自动识别）',
   'tp.editTip': '人工修正此句（同步检索与导出）',
 
   // 进度页
@@ -271,6 +272,10 @@ const zh = {
   'set.apiKey': 'API 访问密钥',
   'set.apiKeyPh': '填写服务端分配的访问密钥（sk-…）',
   'set.apiKeyTip': '服务端启用鉴权（ASR_API_KEYS）后必填；仅保存在本机浏览器，随请求自动携带。',
+  'set.vpTitle': '声纹库（跨会议说话人识别）',
+  'set.vpTip': '转写页重命名时勾选「存为声纹」即可录入；新会议自动比对匹配（阈值 0.75，宁缺勿错）。声纹特征仅存本机数据库，可随时删除；ASR_VOICEPRINT_ENABLED=0 可整体关闭。',
+  'set.vpEmpty': '声纹库为空。在会议转写页点击说话人名称 → 勾选「存为声纹」即可录入。',
+  'set.vpDelConfirm': '确定删除该声纹？删除后新会议不再自动识别此人。',
   'se.relevance': '相关度 {p}%',
   'se.jumpTo': '跳转转写',
   'se.clickHint': '点击卡片进入转写页并定位该句',
