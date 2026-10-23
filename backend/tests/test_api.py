@@ -1,5 +1,7 @@
 """API 冒烟测试（匿名模式 + 鉴权开关）。"""
+import io
 import json
+from urllib.parse import quote
 
 import config
 import pytest
@@ -39,7 +41,7 @@ def _seed_done_recording(tmp_path, rid="rid-exp", jid="jid-exp", with_result=Tru
         c.execute("DELETE FROM jobs WHERE recording_id=?", (rid,))
         c.execute("DELETE FROM recordings WHERE id=?", (rid,))
         c.execute("INSERT INTO recordings(id, filename, status, created_at) "
-                  "VALUES(?, 'export.wav', 'done', '2026-01-01 00:00:00')", (rid,))
+                  "VALUES(?, '产品评审.mp3', 'done', '2026-01-01 00:00:00')", (rid,))
         c.execute("INSERT INTO jobs(id, recording_id, status, result_path, created_at, updated_at) "
                   "VALUES(?, ?, 'done', ?, '2026-01-01 00:00:00', '2026-01-01 00:00:00')",
                   (jid, rid, str(rp) if with_result else None))
@@ -79,6 +81,58 @@ def test_subtitle_unsupported_format_is_readable(client, tmp_path):
         r = client.get("/api/v1/recordings/%s/subtitle?fmt=txt" % rid)
         assert r.status_code == 400
         assert "不支持" in r.get_json()["error"]
+    finally:
+        _drop_recording(rid)
+
+
+# ---------------- U4：导出文件名 / 元数据 ----------------
+def test_export_filename_and_md_meta(client, tmp_path):
+    rid = _seed_done_recording(tmp_path)
+    try:
+        r = client.get("/api/v1/recordings/%s/export?fmt=md" % rid)
+        assert r.status_code == 200
+        cd = r.headers["Content-Disposition"]
+        assert ('filename="%s.md"' % rid) in cd  # ASCII 兜底
+        assert quote("产品评审_20260101.md") in cd  # RFC5987 中文名
+        body = r.get_data(as_text=True)
+        assert "日期：2026-01-01" in body
+        assert "录音文件：产品评审.mp3" in body
+    finally:
+        _drop_recording(rid)
+
+
+def test_export_txt_filename(client, tmp_path):
+    rid = _seed_done_recording(tmp_path)
+    try:
+        r = client.get("/api/v1/recordings/%s/export?fmt=txt" % rid)
+        assert r.status_code == 200
+        assert quote("产品评审_20260101.txt") in r.headers["Content-Disposition"]
+    finally:
+        _drop_recording(rid)
+
+
+def test_subtitle_filename_readable(client, tmp_path):
+    rid = _seed_done_recording(tmp_path)
+    try:
+        r = client.get("/api/v1/recordings/%s/subtitle?fmt=srt" % rid)
+        assert r.status_code == 200
+        assert quote("产品评审_20260101.srt") in r.headers["Content-Disposition"]
+    finally:
+        _drop_recording(rid)
+
+
+def test_docx_has_document_properties(client, tmp_path):
+    from docx import Document
+
+    rid = _seed_done_recording(tmp_path)
+    try:
+        r = client.get("/api/v1/recordings/%s/export?fmt=docx" % rid)
+        assert r.status_code == 200
+        assert quote("产品评审_20260101.docx") in r.headers["Content-Disposition"]
+        d = Document(io.BytesIO(r.data))
+        assert d.core_properties.author == "MeetScribe"
+        assert "MeetScribe" in (d.core_properties.comments or "")
+        assert d.core_properties.title
     finally:
         _drop_recording(rid)
 

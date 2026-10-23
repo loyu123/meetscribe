@@ -581,6 +581,8 @@ body {
 .turn .spk-ren .cc { cursor: pointer; opacity: .6; }
 .turn .spk-ren .vp-save { flex: 1 1 100%; display: inline-flex; align-items: center; gap: 5px;
   font-size: 11px; color: var(--ink-500); cursor: pointer; }
+.turn .spk-ren .ok.off { opacity: .35; cursor: not-allowed; }
+.turn .spk-ren .vp-hint { flex: 1 1 100%; font-size: 10.5px; line-height: 1.5; color: var(--orange, #c47b00); }
 .vp-item { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line, #e5e8ef);
   border-radius: var(--r-8, 8px); padding: 6px 10px; margin-bottom: 6px; font-size: 12.5px; }
 

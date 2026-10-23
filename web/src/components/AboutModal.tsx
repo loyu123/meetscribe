@@ -1,6 +1,7 @@
 import { getSystemInfo, type SystemInfo } from '../api/settings'
 import { useEffect, useState } from 'react'
 import { t, useLang } from '../i18n'
+import { BUILD_SHA, BUILD_TIME, hardReload } from '../utils/build-info'
 
 /** 「关于」弹层：品牌名片 + 技术栈 + 许可（开源后的项目第一入口） */
 export default function AboutModal({ onClose }: { onClose: () => void }) {
@@ -17,6 +18,7 @@ export default function AboutModal({ onClose }: { onClose: () => void }) {
     [t('ab.diarize'), 'CAM++'],
     [t('ab.ai'), t('ab.aiVal')],
     [t('ab.license'), 'Apache-2.0'],
+    [t('ab.webBuild'), `${BUILD_SHA} · ${BUILD_TIME}`],
   ]
 
   return (
@@ -26,7 +28,7 @@ export default function AboutModal({ onClose }: { onClose: () => void }) {
           <div className="logo">M</div>
           <div className="en">MeetScribe</div>
           <div className="zh">{t('ab.sub')}</div>
-          <div className="ver"><span className="pill rec">v{ver} · Open Source</span></div>
+          <div className="ver"><span className="pill rec">v{ver} · web {BUILD_SHA}</span></div>
         </div>
         <div className="ab-bd">
           {rows.map(([k, v]) => (
@@ -41,6 +43,7 @@ export default function AboutModal({ onClose }: { onClose: () => void }) {
         </div>
         <div className="ab-ft">
           <span>{lang === 'zh' ? '聆语会议' : 'MeetScribe'} · {t('ab.local')}</span>
+          <span className="lnk" style={{ cursor: 'pointer' }} onClick={hardReload}>{t('ab.forceReload')}</span>
         </div>
       </div>
     </div>

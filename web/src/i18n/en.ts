@@ -189,6 +189,7 @@ const en: Record<keyof typeof zh, string> = {
   'tp.spkUnknown': 'Speaker?',
   'tp.renameTip': 'Click to rename (this meeting; syncs search & export)',
   'tp.vpSave': 'Save as voiceprint (auto-recognize across meetings)',
+  'tp.vpNeedName': 'Voiceprint needs a new name (still "{name}"). Rename first.',
   'tp.editTip': 'Fix this sentence (syncs search & export)',
 
   'job.queue': 'Queued',
@@ -397,6 +398,8 @@ const en: Record<keyof typeof zh, string> = {
   'ab.ai': 'AI capability',
   'ab.aiVal': 'OpenAI-compatible gateway (configurable)',
   'ab.license': 'License',
+  'ab.webBuild': 'Web build',
+  'ab.forceReload': 'Hard reload (bypass cache)',
   'ab.backend': 'Backend status',
   'ab.local': 'Self-hosted',
 

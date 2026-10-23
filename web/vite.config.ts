@@ -78,8 +78,25 @@ function proxyToBackend(): Plugin {
   }
 }
 
+// U5：构建版本（git short sha + 构建时间）。用于「关于」弹层显示，
+// 并在排查“手机看到的是旧页面”这类问题时能一眼确认前端版本。
+function buildInfo() {
+  let sha = 'dev'
+  try {
+    sha = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString().trim() || 'dev'
+  } catch { /* 无 git（如 Docker 构建上下文）时退化为 dev */ }
+  const time = new Date().toISOString().slice(0, 16).replace('T', ' ')
+  return { sha, time }
+}
+const BUILD = buildInfo()
+
 // 纯前端 SPA，标准 fetch 对接后端 /api/v1；不依赖浏览器私有接口，方便后续 Tauri/Electron 套壳
 export default defineConfig({
   plugins: [react(), proxyToBackend()],
+  define: {
+    __BUILD_SHA__: JSON.stringify(BUILD.sha),
+    __BUILD_TIME__: JSON.stringify(BUILD.time),
+  },
   build: { outDir: 'dist' }
 })

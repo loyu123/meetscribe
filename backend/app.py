@@ -26,6 +26,7 @@ import tempfile
 import threading
 import time
 import uuid
+from urllib.parse import quote
 
 from flask import Flask, jsonify, request, send_file, Response, g
 
@@ -874,7 +875,7 @@ def rec_subtitle(rid):
     body = _build_subtitle(result, fmt)
     mime = "application/x-subrip" if fmt == "srt" else "text/vtt"
     return Response(body, mimetype=mime,
-                    headers={"Content-Disposition": "attachment; filename=\"%s.%s\"" % (rid, fmt)})
+                    headers={"Content-Disposition": _attachment_header(rec, fmt)})
 
 
 # ---------------- 导出增强（P1-3）：带时间戳 TXT / Markdown 纪要 ----------------
@@ -882,6 +883,47 @@ def _ms_ts(ms):
     ms = max(0, int(ms or 0))
     h, m, s = ms // 3600000, (ms % 3600000) // 60000, (ms % 60000) // 1000
     return "%02d:%02d:%02d" % (h, m, s) if h else "%02d:%02d" % (m, s)
+
+
+_AUDIO_EXTS = (".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".wma", ".amr",
+               ".mp4", ".mov", ".mkv", ".webm", ".avi")
+
+
+def _export_base(rec):
+    """U4：导出文件名基名 `会议名_YYYYMMDD`，去掉扩展名与非法字符（中文保留）。"""
+    name = (rec.get("filename") or "").strip()
+    low = name.lower()
+    for ext in _AUDIO_EXTS:
+        if low.endswith(ext):
+            name = name[: -len(ext)]
+            break
+    name = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", name).strip(" ._")
+    date = (rec.get("created_at") or "")[:10].replace("-", "")
+    base = "_".join(p for p in (name, date) if p)
+    return (base or rec.get("id") or "meeting")[:80]
+
+
+def _attachment_header(rec, ext):
+    """Content-Disposition：ASCII 兜底 + RFC5987 中文文件名（浏览器优先用后者）。"""
+    name = "%s.%s" % (_export_base(rec), ext)
+    fallback = "%s.%s" % (rec.get("id") or "meeting", ext)
+    return "attachment; filename=\"%s\"; filename*=UTF-8''%s" % (fallback, quote(name))
+
+
+def _rec_meta_line(rec, result):
+    """导出文件头部的来源信息：录音名 / 日期 / 时长 / 说话人数。"""
+    date = (rec.get("created_at") or "")[:10]
+    turns = (result or {}).get("turns") or []
+    dur = _ms_ts(max((int(x.get("end_ms") or 0) for x in turns), default=0))
+    parts = []
+    if rec.get("filename"):
+        parts.append("录音文件：%s" % rec["filename"])
+    if date:
+        parts.append("日期：%s" % date)
+    parts.append("时长：%s" % dur)
+    if (result or {}).get("speakers"):
+        parts.append("说话人：%d 位" % len(result["speakers"]))
+    return "> " + " · ".join(parts)
 
 
 def _build_txt(result):
@@ -902,10 +944,12 @@ def _md_points(points):
     return out
 
 
-def _summary_to_markdown(content, template, title):
+def _summary_to_markdown(content, template, title, meta=None):
     """把纪要 JSON 转成 Markdown（标题/一句话/要点/行动项/风险/待办，均带时间戳溯源）。"""
     c = content or {}
     lines = ["# %s" % (c.get("title") or title)]
+    if meta:
+        lines.append("\n%s" % meta)
     if c.get("one_line"):
         lines.append("\n> %s" % c["one_line"])
     if c.get("owner"):
@@ -945,6 +989,7 @@ def _summary_to_markdown(content, template, title):
 
 def _transcript_markdown(rec, result):
     lines = ["# %s" % rec.get("filename", rec.get("id", "")), "",
+             _rec_meta_line(rec, result), "",
              "> 转写全文（带时间戳，尚未生成纪要）", ""]
     lines.extend(_build_txt(result).split("\n"))
     return "\n".join(lines) + "\n"
@@ -1023,6 +1068,14 @@ def _build_docx(s, template, rec, result):
         r.font.size = Pt(9)
         p.add_run(t.get("text", ""))
 
+    # U4：写入文档属性，接收方在 Word「文件 → 信息」里能看到来源
+    cp = doc.core_properties
+    cp.title = (s["content"].get("title") if s and s.get("content") else None) or title
+    cp.author = "MeetScribe"
+    cp.last_modified_by = "MeetScribe"
+    cp.subject = "会议纪要" if (s and s.get("content")) else "转写全文"
+    cp.comments = "由 MeetScribe 导出 · 录音 %s" % (rec.get("id") or "")
+
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
@@ -1063,12 +1116,12 @@ def rec_export(rid):
             return jsonify({"error": "Word 导出失败，请改用 Markdown 或 TXT 导出"}), 500
         return Response(body,
                         mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        headers={"Content-Disposition": "attachment; filename=\"%s.docx\"" % rid})
+                        headers={"Content-Disposition": _attachment_header(rec, "docx")})
     if fmt == "md":
         s = store.get_summary(rid)
         if s and s.get("content") and s.get("status") == "done":
             body = _summary_to_markdown(s["content"], s.get("template") or "meeting",
-                                        rec.get("filename") or rid)
+                                        rec.get("filename") or rid, _rec_meta_line(rec, result))
         else:
             body = _transcript_markdown(rec, result)
         mime, ext = "text/markdown", "md"
@@ -1077,7 +1130,7 @@ def rec_export(rid):
         body = _build_txt(result)
         mime, ext = "text/plain", "txt"
     return Response(body, mimetype=mime,
-                    headers={"Content-Disposition": "attachment; filename=\"%s.%s\"" % (rid, ext)})
+                    headers={"Content-Disposition": _attachment_header(rec, ext)})
 
 
 # ---------------- 历史语义检索（FR-25~FR-32） ----------------

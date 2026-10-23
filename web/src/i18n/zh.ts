@@ -195,6 +195,7 @@ const zh = {
   'tp.spkUnknown': '说话人?',
   'tp.renameTip': '点击重命名（本会议内生效，同步检索与导出）',
   'tp.vpSave': '存为声纹（跨会议自动识别）',
+  'tp.vpNeedName': '存为声纹需要先改一个新的姓名（当前仍是「{name}」）。',
   'tp.editTip': '人工修正此句（同步检索与导出）',
 
   // 进度页
@@ -412,6 +413,8 @@ const zh = {
   'ab.ai': 'AI 能力',
   'ab.aiVal': 'OpenAI 兼容网关（可配置）',
   'ab.license': '许可证',
+  'ab.webBuild': '前端构建',
+  'ab.forceReload': '强制刷新（清缓存）',
   'ab.backend': '后端状态',
   'ab.local': '本地部署',
 

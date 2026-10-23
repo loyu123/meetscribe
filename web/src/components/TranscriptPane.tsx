@@ -79,8 +79,11 @@ export default function TranscriptPane({ id, detail, audioRef, curMs, locate, on
     const val = renaming.val.trim()
     if (!val) { setRenaming(null); return }
     const cur = labelOf(renaming.spk)
-    const saveVp = renaming.vp && val !== cur
-    if (val === cur && !saveVp) { setRenaming(null); return }
+    // U6：勾选存声纹但没改名 → 保持面板打开并显示内联提示，
+    // 避免“看起来存了其实什么都没做”的静默失败。
+    if (renaming.vp && val === cur) return
+    if (val === cur) { setRenaming(null); return }
+    const saveVp = !!renaming.vp
     setRenamingBusy(true)
     try {
       if (val !== cur) {
@@ -156,12 +159,16 @@ export default function TranscriptPane({ id, detail, audioRef, curMs, locate, on
                     if (e.key === 'Escape') setRenaming(null)
                   }}
                 />
-                <span className="ok" title={t('c.save')} onClick={doRename}>{renamingBusy ? '…' : '✓'}</span>
+                <span className={'ok' + (renaming.vp && renaming.val.trim() === labelOf(renaming.spk) ? ' off' : '')}
+                  title={t('c.save')} onClick={doRename}>{renamingBusy ? '…' : '✓'}</span>
                 <span className="cc" onClick={() => setRenaming(null)}>✕</span>
                 <label className="vp-save" onClick={(e) => e.stopPropagation()}>
                   <input type="checkbox" checked={!!renaming.vp} onChange={(e) => setRenaming({ ...renaming, vp: e.target.checked })} />
                   {t('tp.vpSave')}
                 </label>
+                {renaming.vp && renaming.val.trim() === labelOf(renaming.spk) && (
+                  <span className="vp-hint">{t('tp.vpNeedName', { name: labelOf(renaming.spk) })}</span>
+                )}
               </span>
             )}
             <div className="lab" style={{ color: colorOf(tu.spk) }}>
