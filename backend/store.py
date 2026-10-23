@@ -174,6 +174,10 @@ _MIGRATIONS = [
     ("recordings", "index_status", "TEXT DEFAULT 'none'"),
     ("recordings", "indexed_at", "TEXT"),
     ("recordings", "index_error", "TEXT"),
+    ("templates", "tenant_id", "TEXT DEFAULT ''"),
+    ("jobs", "started_at", "TEXT"),
+    ("jobs", "finished_at", "TEXT"),
+    ("chunks", "elapsed_ms", "INTEGER"),
 ]
 
 
@@ -213,9 +217,15 @@ def seed_templates():
             )
 
 
-def list_templates():
+def list_templates(tenant_id=None):
+    """P2-1：内置模板全租户可见；自定义模板仅创建租户与管理员可见。"""
     with conn() as c:
-        rows = c.execute("SELECT * FROM templates ORDER BY builtin DESC, created_at").fetchall()
+        if tenant_id is None:  # 管理员/未鉴权：全部
+            rows = c.execute("SELECT * FROM templates ORDER BY builtin DESC, created_at").fetchall()
+        else:
+            rows = c.execute(
+                "SELECT * FROM templates WHERE builtin=1 OR tenant_id=? OR tenant_id='' "
+                "ORDER BY builtin DESC, created_at", (tenant_id,)).fetchall()
         out = []
         for x in rows:
             d = dict(x)
@@ -238,8 +248,8 @@ def get_template(tid):
         return d
 
 
-def create_template(name, color="#2b5cff", description="", sections=None, opts=None):
-    """创建自定义模板，返回 (id, error)。"""
+def create_template(name, color="#2b5cff", description="", sections=None, opts=None, tenant_id=""):
+    """创建自定义模板，返回 (id, error)。P2-1：归属创建租户。"""
     name = (name or "").strip()
     if not name:
         return None, "模板名称不能为空"
@@ -254,10 +264,10 @@ def create_template(name, color="#2b5cff", description="", sections=None, opts=N
     tid = uuid.uuid4().hex
     with conn() as c:
         c.execute(
-            "INSERT INTO templates(id,name,color,description,sections,opts,builtin,created_at) "
-            "VALUES(?,?,?,?,?,?,0,?)",
+            "INSERT INTO templates(id,name,color,description,sections,opts,builtin,tenant_id,created_at) "
+            "VALUES(?,?,?,?,?,?,0,?,?)",
             (tid, name, color or "#2b5cff", (description or "").strip(),
-             json.dumps(sections, ensure_ascii=False), json.dumps(opts or {}), now()),
+             json.dumps(sections, ensure_ascii=False), json.dumps(opts or {}), tenant_id, now()),
         )
     return tid, None
 
@@ -326,14 +336,22 @@ def ensure_default_folders():
                 c.execute("INSERT OR IGNORE INTO folders(name) VALUES(?)", (name,))
 
 
-def list_folders():
-    """返回 [{name, count}]，count 为未删除录音数。"""
+def list_folders(tenant_id=None):
+    """返回 [{name, count}]，count 为未删除录音数。P2-1：计数按租户可见录音统计。"""
     with conn() as c:
-        rows = c.execute(
-            "SELECT f.name AS name, COUNT(r.id) AS count FROM folders f "
-            "LEFT JOIN recordings r ON r.folder=f.name AND r.deleted_at IS NULL "
-            "GROUP BY f.name ORDER BY f.name"
-        ).fetchall()
+        if tenant_id is not None:
+            rows = c.execute(
+                "SELECT f.name AS name, COUNT(r.id) AS count FROM folders f "
+                "LEFT JOIN recordings r ON r.folder=f.name AND r.deleted_at IS NULL "
+                "AND (r.tenant_id=? OR r.tenant_id='') "
+                "GROUP BY f.name ORDER BY f.name", (tenant_id,)
+            ).fetchall()
+        else:
+            rows = c.execute(
+                "SELECT f.name AS name, COUNT(r.id) AS count FROM folders f "
+                "LEFT JOIN recordings r ON r.folder=f.name AND r.deleted_at IS NULL "
+                "GROUP BY f.name ORDER BY f.name"
+            ).fetchall()
         return [dict(x) for x in rows]
 
 
@@ -757,27 +775,44 @@ def get_segments(jid):
         return [dict(x) for x in rows]
 
 
-def list_review_segments(limit=200, tenant_id=None):
-    """全局复核队列：所有被标记需人工复核的句子（FR-17）；可按租户隔离。"""
+def list_review_segments(limit=200, tenant_id=None, recording_id=None,
+                         reason=None, conf_max=None, offset=0):
+    """全局复核队列：所有被标记需人工复核的句子（FR-17）；可按租户隔离。
+
+    P2-4 筛选：recording_id / review_reason / conf_max（置信度上限，如 0.6 = 仅低置信度）/
+    offset 分页。返回 {"items": [...], "total": 匹配总数}。
+    """
+    where, params = ["s.need_review=1"], []
+    if tenant_id is not None:
+        where.append("(r.tenant_id=? OR r.tenant_id='')")
+        params.append(tenant_id)
+    if recording_id:
+        where.append("j.recording_id=?")
+        params.append(recording_id)
+    if reason:
+        where.append("s.review_reason LIKE ?")
+        params.append("%" + reason + "%")
+    if conf_max is not None:
+        where.append("COALESCE(s.confidence, 0) <= ?")
+        params.append(float(conf_max))
+    cond = " AND ".join(where)
+    base = ("FROM segments s JOIN jobs j ON j.id=s.job_id "
+            "JOIN recordings r ON r.id=j.recording_id WHERE " + cond)
     with conn() as c:
-        if tenant_id is not None:
-            rows = c.execute(
-                "SELECT s.*, j.recording_id, j.asr_model FROM segments s "
-                "JOIN jobs j ON j.id=s.job_id "
-                "JOIN recordings r ON r.id=j.recording_id "
-                "WHERE s.need_review=1 AND (r.tenant_id=? OR r.tenant_id='') "
-                "ORDER BY j.updated_at DESC, s.start_ms LIMIT ?", (tenant_id, limit)
-            ).fetchall()
-        else:
-            rows = c.execute(
-                "SELECT s.*, j.recording_id, j.asr_model FROM segments s JOIN jobs j ON j.id=s.job_id "
-                "WHERE s.need_review=1 ORDER BY j.updated_at DESC, s.start_ms LIMIT ?", (limit,)
-            ).fetchall()
-    return [dict(x) for x in rows]
+        total = c.execute("SELECT COUNT(*) n " + base, params).fetchone()["n"]
+        rows = c.execute(
+            "SELECT s.*, j.recording_id, j.asr_model " + base +
+            " ORDER BY j.updated_at DESC, s.start_ms LIMIT ? OFFSET ?",
+            params + [limit, max(0, int(offset or 0))],
+        ).fetchall()
+    return {"items": [dict(x) for x in rows], "total": total}
 
 
-def confirm_review_segments(ids):
-    """批量人工确认：need_review 置 0 并清除原因，句子从复核队列消失。返回确认条数。"""
+def confirm_review_segments(ids, allowed_recording_ids=None):
+    """批量人工确认：need_review 置 0 并清除原因，句子从复核队列消失。返回确认条数。
+
+    P2-1 租户校验：allowed_recording_ids 提供时，仅确认属于这些录音的分片。
+    """
     vals = []
     for x in (ids or [])[:500]:
         try:
@@ -786,12 +821,17 @@ def confirm_review_segments(ids):
             continue
     if not vals:
         return 0
+    sql = ("UPDATE segments SET need_review=0, review_reason=NULL "
+           "WHERE id IN (%s)" % ",".join("?" * len(vals)))
+    params = list(vals)
+    if allowed_recording_ids is not None:
+        if not allowed_recording_ids:
+            return 0
+        sql += (" AND job_id IN (SELECT j.id FROM jobs j WHERE j.recording_id IN (%s))"
+                % ",".join("?" * len(allowed_recording_ids)))
+        params.extend(allowed_recording_ids)
     with conn() as c:
-        cur = c.execute(
-            "UPDATE segments SET need_review=0, review_reason=NULL "
-            "WHERE id IN (%s)" % ",".join("?" * len(vals)),
-            vals,
-        )
+        cur = c.execute(sql, params)
         return cur.rowcount
 
 
@@ -901,6 +941,44 @@ def save_summary_edit(sid, editor, before, after):
 def add_event(jid, kind, detail=""):
     with conn() as c:
         c.execute("INSERT INTO events(job_id,ts,kind,detail) VALUES(?,?,?,?)", (jid, now(), kind, detail))
+
+
+def job_events(jid, limit=300):
+    """P2-2：读取任务事件流水（此前 events 表只写不读）。"""
+    with conn() as c:
+        rows = c.execute(
+            "SELECT ts,kind,detail FROM events WHERE job_id=? ORDER BY id DESC LIMIT ?",
+            (jid, limit)).fetchall()
+    return [dict(x) for x in rows]
+
+
+def recent_failed_events(limit=20):
+    """P2-2：最近失败事件（chunk_fail/job_failed/job_error），供运维速览。"""
+    with conn() as c:
+        rows = c.execute(
+            "SELECT e.job_id, e.ts, e.kind, e.detail, j.recording_id, r.filename "
+            "FROM events e LEFT JOIN jobs j ON j.id=e.job_id "
+            "LEFT JOIN recordings r ON r.id=j.recording_id "
+            "WHERE e.kind IN ('chunk_fail','job_failed','job_error') "
+            "ORDER BY e.id DESC LIMIT ?", (limit,)).fetchall()
+    return [dict(x) for x in rows]
+
+
+# ---------------- 任务/分片耗时（P2-2 可观测性） ----------------
+def mark_job_started(jid):
+    with conn() as c:
+        c.execute("UPDATE jobs SET started_at=COALESCE(started_at,?) WHERE id=?", (now(), jid))
+
+
+def mark_job_finished(jid):
+    with conn() as c:
+        c.execute("UPDATE jobs SET finished_at=? WHERE id=?", (now(), jid))
+
+
+def set_chunk_elapsed(jid, idx, elapsed_ms):
+    with conn() as c:
+        c.execute("UPDATE chunks SET elapsed_ms=? WHERE job_id=? AND idx=?",
+                  (int(max(0, elapsed_ms)), jid, idx))
 
 
 # ---------------- 幂等键（FR-06） ----------------

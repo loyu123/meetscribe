@@ -1,6 +1,18 @@
 // 轻量 fetch 封装：统一走 /api/v1，由 vite 代理到后端 5000 端口
 const BASE = '/api/v1'
 
+/** P2-1：API 访问密钥（服务端启用 ASR_API_KEYS 后所有 /api 需要 Bearer 鉴权）。
+ *  存于 localStorage('ms_api_key')，设置页可配置。 */
+export function authHeaders(): Record<string, string> {
+  const k = localStorage.getItem('ms_api_key')
+  return k ? { Authorization: 'Bearer ' + k } : {}
+}
+
+export function setApiKey(key: string) {
+  if (key.trim()) localStorage.setItem('ms_api_key', key.trim())
+  else localStorage.removeItem('ms_api_key')
+}
+
 /** 非 2xx 时读取响应体中的 error 字段，避免后端错误信息被 "HTTP 500" 吞掉 */
 async function errOf(r: Response): Promise<Error> {
   let msg = 'HTTP ' + r.status
@@ -14,7 +26,7 @@ async function errOf(r: Response): Promise<Error> {
 }
 
 export async function getJSON<T>(path: string): Promise<T> {
-  const r = await fetch(BASE + path, { headers: { Accept: 'application/json' } })
+  const r = await fetch(BASE + path, { headers: { Accept: 'application/json', ...authHeaders() } })
   if (!r.ok) throw await errOf(r)
   return (await r.json()) as T
 }
@@ -22,7 +34,7 @@ export async function getJSON<T>(path: string): Promise<T> {
 export async function postJSON<T>(path: string, body: unknown = {}): Promise<T> {
   const r = await fetch(BASE + path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   })
   if (!r.ok) throw await errOf(r)
@@ -32,7 +44,7 @@ export async function postJSON<T>(path: string, body: unknown = {}): Promise<T> 
 export async function putJSON<T>(path: string, body: unknown = {}): Promise<T> {
   const r = await fetch(BASE + path, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   })
   if (!r.ok) throw await errOf(r)

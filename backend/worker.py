@@ -71,6 +71,7 @@ def process_job(job):
     backend = (job.get("asr_model") or config.DEFAULT_ASR_BACKEND)
     denoise = bool(job.get("denoise"))
     _log(jid, "job_start", "backend=%s denoise=%s" % (backend, denoise))
+    store.mark_job_started(jid)  # P2-2：记录任务开始时间（可观测性）
 
     try:
         # 1) 解码
@@ -123,6 +124,7 @@ def process_job(job):
         store.update_job(jid, status=status, stage="完成" if status == "done" else "部分完成",
                          progress=100.0 if status != "failed" else prog["progress"],
                          result_path=_result_path(jid))
+        store.mark_job_finished(jid)  # P2-2：记录任务结束时间
         store.set_recording_status(rid, status, duration_ms=duration_ms, num_speakers=n_spk)
         # FR-24：转写（重跑）完成后，基于旧转写生成的摘要标记失效，提示重新生成
         store.mark_summaries_stale(rid)
@@ -142,6 +144,7 @@ def process_job(job):
         traceback.print_exc()
         store.update_job(jid, status="failed", stage="失败", error=str(e)[:800])
         store.set_recording_status(rid, "failed", error=str(e)[:800])
+        store.mark_job_finished(jid)  # P2-2
         _log(jid, "job_error", str(e))
     finally:
         # FR-08 累计当日已处理时长（用于配额）
@@ -184,13 +187,16 @@ def _process_chunks_pool(jid, wav, hotword, preset, backend):
             futures[idx] = (fut, attempts_before, s, e)
         requeue = False
         for idx, (fut, attempts_before, s, e) in futures.items():
+            t0 = time.perf_counter()  # P2-2：分片耗时（含排队）
             try:
                 res = fut.result()
+                elapsed_ms = int((time.perf_counter() - t0) * 1000)
                 _save_chunk(jid, idx, res)
                 store.set_chunk_status(jid, idx, "done")
-                _log(jid, "chunk_done", "idx=%d seg=%d dropped=%d backend=%s%s" % (
+                store.set_chunk_elapsed(jid, idx, elapsed_ms)
+                _log(jid, "chunk_done", "idx=%d seg=%d dropped=%d backend=%s elapsed=%.1fs%s" % (
                     idx, len(res["sentences"]), res.get("dropped", 0), res.get("backend"),
-                    " FALLBACK" if res.get("fallback") else ""))
+                    elapsed_ms / 1000.0, " FALLBACK" if res.get("fallback") else ""))
             except BrokenProcessPool:
                 # 池进程崩溃（OOM/CUDA）：销毁旧池，下轮 submit 自动重建（engine._get_infer_pool）
                 engine.shutdown_infer_pool()
@@ -236,13 +242,16 @@ def _process_chunks_serial(jid, wav, tmp_chunk, hotword, preset, backend):
             idx, s, e = ch["idx"], ch["start_ms"], ch["end_ms"]
             attempts_before = ch["attempts"]
             store.set_chunk_status(jid, idx, "processing", inc_attempt=True)
+            t0 = time.perf_counter()  # P2-2：分片耗时
             try:
                 res = engine.process_chunk(wav, s, e, tmp_chunk, hotword, preset, backend)
+                elapsed_ms = int((time.perf_counter() - t0) * 1000)
                 _save_chunk(jid, idx, res)
                 store.set_chunk_status(jid, idx, "done")
-                _log(jid, "chunk_done", "idx=%d seg=%d dropped=%d backend=%s%s" % (
+                store.set_chunk_elapsed(jid, idx, elapsed_ms)
+                _log(jid, "chunk_done", "idx=%d seg=%d dropped=%d backend=%s elapsed=%.1fs%s" % (
                     idx, len(res["sentences"]), res.get("dropped", 0), res.get("backend"),
-                    " FALLBACK" if res.get("fallback") else ""))
+                    elapsed_ms / 1000.0, " FALLBACK" if res.get("fallback") else ""))
             except Exception as exc:  # noqa
                 err = str(exc)[:500]
                 if attempts_before < config.MAX_CHUNK_RETRY:

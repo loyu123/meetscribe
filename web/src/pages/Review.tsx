@@ -5,17 +5,29 @@ import type { ReviewSegment, Stats, Recording } from '../api/types'
 import { fmtDuration } from '../utils/format'
 import { t } from '../i18n'
 
+// P2-4 复核原因选项（与 engine.review_flag 输出一致，后端 LIKE 模糊匹配）
+const REASONS = ['', '低置信度', '过短', '重复字/异常标点', '疑似漏字']
+
 export default function Review() {
   const nav = useNavigate()
   const [segs, setSegs] = useState<ReviewSegment[]>([])
+  const [total, setTotal] = useState(0)
   const [stats, setStats] = useState<Stats | null>(null)
   const [names, setNames] = useState<Record<string, string>>({})
   const [err, setErr] = useState<string | null>(null)
   const [sel, setSel] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
+  // P2-4 筛选：录音 / 原因 / 置信度上限
+  const [fRec, setFRec] = useState('')
+  const [fReason, setFReason] = useState('')
+  const [fConf, setFConf] = useState('')
 
   const load = () => {
-    getReview().then(setSegs).catch((e) => setErr(String(e)))
+    getReview({
+      recording_id: fRec || undefined,
+      reason: fReason || undefined,
+      conf_max: fConf ? Number(fConf) : undefined,
+    }).then((d) => { setSegs(d.segments); setTotal(d.total) }).catch((e) => setErr(String(e)))
     getStats().then(setStats).catch(() => {})
   }
 
@@ -24,7 +36,8 @@ export default function Review() {
     getRecordings().then((rs: Recording[]) =>
       setNames(Object.fromEntries(rs.map((r) => [r.id, r.filename])))
     ).catch(() => {})
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fRec, fReason, fConf])
 
   const confClass = (c?: number | null) => {
     if (c == null) return ''
@@ -84,6 +97,36 @@ export default function Review() {
           {t('rv.today', { n: stats ? stats.jobs_today.count : '—', p: stats ? Math.round(stats.jobs_today.failure_rate * 100) : '—' })}<br />
           {t('rv.queue', { a: stats ? stats.queue.processing : '—', b: stats ? (stats.jobs.failed ?? 0) : '—' })}
         </div>
+      </div>
+
+      {/* P2-4 筛选条：录音 / 复核原因 / 置信度上限 */}
+      <div className="resbar" style={{ marginBottom: 12 }}>
+        <span className="lb">{t('rv.fRec')}</span>
+        <select value={fRec} onChange={(e) => { setSel([]); setFRec(e.target.value) }}>
+          <option value="">{t('se.all')}</option>
+          {Object.entries(names).map(([id, name]) => (
+            <option key={id} value={id}>{name}</option>
+          ))}
+        </select>
+        <span className="lb">{t('rv.fReason')}</span>
+        <select value={fReason} onChange={(e) => { setSel([]); setFReason(e.target.value) }}>
+          {REASONS.map((r) => (
+            <option key={r} value={r}>{r ? r : t('se.all')}</option>
+          ))}
+        </select>
+        <span className="lb">{t('rv.fConf')}</span>
+        <select value={fConf} onChange={(e) => { setSel([]); setFConf(e.target.value) }}>
+          <option value="">{t('se.all')}</option>
+          <option value="0.6">&lt; 60%</option>
+          <option value="0.8">&lt; 80%</option>
+        </select>
+        {(fRec || fReason || fConf) && (
+          <span className="chip k" style={{ cursor: 'pointer' }}
+            onClick={() => { setSel([]); setFRec(''); setFReason(''); setFConf('') }}>{t('se.clearFilter')}</span>
+        )}
+        <span className="meta">
+          {t('rv.showing', { a: segs.length, b: total })}
+        </span>
       </div>
 
       {segs.length > 0 && (

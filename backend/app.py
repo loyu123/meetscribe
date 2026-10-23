@@ -48,6 +48,7 @@ store.ai_job_cleanup_stale()  # 重启后清理残留的 processing 纪要/润�
 search.init_search_db()
 
 app = Flask(__name__)
+_START_TIME = time.time()  # P2-2：进程启动时刻，供 /system/metrics 上报运行时长
 PART_SIZE = 4 * 1024 * 1024
 
 
@@ -75,6 +76,14 @@ def _tenant_can_access(rid):
         return False
     rt = rec.get("tenant_id") or ""
     return rt == t or rt == ""
+
+
+def _require_admin():
+    """P2-1：全局管理类操作（网关设置/全量重建/检索日志等）仅管理员或未鉴权模式可用。"""
+    t = _current_tenant()
+    if t and t != "*":
+        return jsonify({"error": "仅管理员可执行此操作"}), 403
+    return None
 
 
 def _media_sign(rid):
@@ -358,18 +367,30 @@ def job_retry(jid):
     return jsonify({"ok": True, "requeued": requeued})
 
 
-# ---------------- 纪要模板（内置 + 自定义） ----------------
+# ---------------- 纪要模板（内置 + 自定义，P2-1 租户隔离） ----------------
+def _tenant_can_manage_template(tpl):
+    """管理员/未鉴权可管理全部；普通租户仅可管理自己创建的（共享 '' 模板只读）。"""
+    t = _current_tenant()
+    if not t or t == "*":
+        return True
+    return tpl.get("tenant_id") == t
+
+
 @app.get("/api/v1/templates")
 def templates_list():
-    return jsonify({"templates": store.list_templates()})
+    t = _current_tenant()
+    tenant_param = t if (t and t != "*") else None
+    return jsonify({"templates": store.list_templates(tenant_id=tenant_param)})
 
 
 @app.post("/api/v1/templates")
 def templates_create():
     data = request.get_json(force=True, silent=True) or {}
+    t = _current_tenant()
     tid, err = store.create_template(
         data.get("name"), data.get("color"), data.get("description"),
-        data.get("sections"), data.get("opts"))
+        data.get("sections"), data.get("opts"),
+        tenant_id=t if (t and t != "*") else "")
     if err:
         return jsonify({"error": err}), 400
     return jsonify({"ok": True, "id": tid})
@@ -377,6 +398,11 @@ def templates_create():
 
 @app.put("/api/v1/templates/<tid>")
 def templates_update(tid):
+    tpl = store.get_template(tid)
+    if not tpl:
+        return jsonify({"error": "模板不存在"}), 404
+    if not _tenant_can_manage_template(tpl):
+        return jsonify({"error": "无权修改该模板"}), 403
     data = request.get_json(force=True, silent=True) or {}
     err = store.update_template(
         tid, data.get("name"), data.get("color"), data.get("description"),
@@ -388,6 +414,11 @@ def templates_update(tid):
 
 @app.delete("/api/v1/templates/<tid>")
 def templates_delete(tid):
+    tpl = store.get_template(tid)
+    if not tpl:
+        return jsonify({"error": "模板不存在"}), 404
+    if not _tenant_can_manage_template(tpl):
+        return jsonify({"error": "无权删除该模板"}), 403
     err = store.delete_template(tid)
     if err:
         return jsonify({"error": err}), 400
@@ -397,11 +428,15 @@ def templates_delete(tid):
 # ---------------- 文件夹（动态建删，「全部录音」为固定视图不落库） ----------------
 @app.get("/api/v1/folders")
 def folders_list():
-    return jsonify({"folders": store.list_folders()})
+    # P2-1：文件夹全局共享，但计数按租户可见录音统计
+    t = _current_tenant()
+    return jsonify({"folders": store.list_folders(tenant_id=t if (t and t != "*") else None)})
 
 
 @app.post("/api/v1/folders")
 def folders_create():
+    if _current_tenant() not in (None, "*"):  # P2-1：文件夹为全局结构，仅管理员可建
+        return jsonify({"error": "仅管理员可创建文件夹"}), 403
     data = request.get_json(force=True, silent=True) or {}
     name, err = store.create_folder(data.get("name"))
     if err:
@@ -411,6 +446,8 @@ def folders_create():
 
 @app.delete("/api/v1/folders/<path:name>")
 def folders_delete(name):
+    if _current_tenant() not in (None, "*"):
+        return jsonify({"error": "仅管理员可删除文件夹"}), 403
     moved = store.delete_folder(name)
     return jsonify({"ok": True, "moved_to_inbox": moved})
 
@@ -449,6 +486,8 @@ def rec_detail(rid):
 @app.post("/api/v1/recordings/<rid>/turns/edit")
 def edit_turn(rid):
     """人工修正某一句转写原文：同步更新结果 JSON（展示/导出）与 segments 表（检索索引）。"""
+    if not _tenant_can_access(rid):  # P2-1：修复此前缺失的租户校验（越权编辑面）
+        return jsonify({"error": "录音不存在"}), 404
     data = request.get_json(force=True, silent=True) or {}
     try:
         start_ms = int(data.get("start_ms"))
@@ -579,19 +618,39 @@ def rec_media(rid):
 
 @app.get("/api/v1/review")
 def review_list():
+    """复核队列（P2-4）：支持 recording_id / reason / conf_max / offset 筛选。"""
     t = _current_tenant()
     tenant_param = t if (t and t != "*") else None
-    return jsonify({"segments": store.list_review_segments(tenant_id=tenant_param)})
+    try:
+        conf_max = request.args.get("conf_max")
+        conf_max = float(conf_max) if conf_max not in (None, "") else None
+        offset = int(request.args.get("offset", 0) or 0)
+        limit = min(int(request.args.get("limit", 200) or 200), 500)
+    except ValueError:
+        return jsonify({"error": "筛选参数非法"}), 400
+    res = store.list_review_segments(
+        limit=limit, tenant_id=tenant_param,
+        recording_id=request.args.get("recording_id") or None,
+        reason=request.args.get("reason") or None,
+        conf_max=conf_max, offset=offset)
+    return jsonify({"segments": res["items"], "total": res["total"]})
 
 
 @app.post("/api/v1/review/confirm")
 def review_confirm():
-    """批量人工复核确认：body {"ids": [segment_id...]}，确认后从复核队列消失。"""
+    """批量人工复核确认：body {"ids": [segment_id...]}，确认后从复核队列消失。
+
+    P2-1：普通租户仅能确认本租户（含共享）录音的分片。
+    """
     data = request.get_json(silent=True) or {}
     ids = data.get("ids") or []
     if not isinstance(ids, list) or not ids:
         return jsonify({"error": "ids 不能为空"}), 400
-    confirmed = store.confirm_review_segments(ids)
+    t = _current_tenant()
+    allowed = None
+    if t and t != "*":
+        allowed = list(store.list_recording_ids(t))
+    confirmed = store.confirm_review_segments(ids, allowed_recording_ids=allowed)
     return jsonify({"ok": True, "confirmed": confirmed})
 
 
@@ -637,12 +696,20 @@ def system_info():
         pass
     size = 0
     try:
-        for root, _dirs, files in os.walk(config.AUDIO_DIR):
-            for fn in files:
+        if t and t != "*":
+            # P2-1：租户只统计自己（含共享）录音的存储占用
+            for r in store.list_recordings(limit=100000, tenant_id=t, deleted=False):
                 try:
-                    size += os.path.getsize(os.path.join(root, fn))
+                    size += os.path.getsize(r["path"]) if r.get("path") else 0
                 except OSError:
                     pass
+        else:
+            for root, _dirs, files in os.walk(config.AUDIO_DIR):
+                for fn in files:
+                    try:
+                        size += os.path.getsize(os.path.join(root, fn))
+                    except OSError:
+                        pass
     except Exception:
         pass
     return jsonify({
@@ -659,16 +726,22 @@ def system_info():
     })
 
 
-# ---------------- AI 网关设置（界面可改，持久化到 runtime_settings.json） ----------------
+# ---------------- AI 网关设置（界面可改，持久化到 runtime_settings.json；P2-1 仅管理员） ----------------
 @app.get("/api/v1/settings")
 def get_gateway_settings():
     """当前 AI 网关配置（密钥掩码返回）。"""
+    denied = _require_admin()
+    if denied:
+        return denied
     return jsonify(runtime_settings.get())
 
 
 @app.put("/api/v1/settings")
 def put_gateway_settings():
     """更新网关地址 / 密钥 / 模型名，热生效并持久化。"""
+    denied = _require_admin()
+    if denied:
+        return denied
     p = request.get_json(silent=True) or {}
     try:
         cfg, changed = runtime_settings.update(p)
@@ -680,6 +753,9 @@ def put_gateway_settings():
 @app.post("/api/v1/settings/test")
 def test_gateway_settings():
     """探测网关连通性（GET /models），返回可用模型列表。"""
+    denied = _require_admin()
+    if denied:
+        return denied
     try:
         models = runtime_settings.test()
     except RuntimeError as e:
@@ -884,6 +960,9 @@ _REINDEX = {"running": False, "done": 0, "failed": 0, "total": 0,
 
 @app.post("/api/v1/search/reindex")
 def search_reindex():
+    denied = _require_admin()  # P2-1：全量重建影响全局，仅管理员
+    if denied:
+        return denied
     if _REINDEX["running"]:
         return jsonify({"ok": True, "started": False, "status": _REINDEX})
     _REINDEX.update(running=True, done=0, failed=0, total=0,
@@ -912,7 +991,41 @@ def search_reindex_status():
 
 @app.get("/api/v1/search/logs")
 def search_logs():
+    denied = _require_admin()  # P2-1：检索审计含全部租户查询词，仅管理员
+    if denied:
+        return denied
     return jsonify({"logs": search.recent_search_logs()})
+
+
+# ---------------- 可观测性（P2-2）：任务事件流水与运行指标 ----------------
+@app.get("/api/v1/recordings/<rid>/events")
+def rec_events(rid):
+    """任务事件流水（分片耗时/重试/失败原因），租户隔离。"""
+    if not _tenant_can_access(rid):
+        return jsonify({"error": "录音不存在"}), 404
+    job = store.get_job_by_recording(rid)
+    if not job:
+        return jsonify({"events": []})
+    return jsonify({"events": store.job_events(job["id"])})
+
+
+@app.get("/api/v1/system/metrics")
+def system_metrics():
+    """运维指标：队列、进行中任务、24h 成功率、最近失败事件（P2-2，仅管理员）。"""
+    denied = _require_admin()
+    if denied:
+        return denied
+    s = store.stats_summary(tenant_id=None)
+    return jsonify({
+        "queue": s.get("queue"),
+        "jobs": s.get("jobs"),
+        "jobs_today": s.get("jobs_today"),
+        "chunks": s.get("chunks"),
+        "segments": {k: s.get("segments", {}).get(k) for k in ("count", "avg_confidence", "need_review")},
+        "recent_failures": store.recent_failed_events(limit=20),
+        "reindex": _REINDEX,
+        "uptime_s": int(time.time() - _START_TIME),
+    })
 
 
 # ---------------- AI 问答（FR-19 延伸） ----------------

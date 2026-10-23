@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { loadSettings, saveSettings, type AppSettings } from '../constants'
 import { getGateway, saveGateway, testGateway, getSystemInfo, type GatewaySettings, type SystemInfo } from '../api/settings'
+import { setApiKey } from '../api/client'
 import { t, useLang } from '../i18n'
 
 export default function SettingsModal({ onClose }: { onClose: () => void }) {
@@ -136,6 +137,15 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           <label className="fld">{t('set.apiQuota')}</label>
           <div style={{ fontSize: 12, color: 'var(--ink-500)', lineHeight: 1.8 }}>
             {t('set.quotaInfo')}
+          </div>
+
+          {/* P2-1：API 访问密钥（服务端启用鉴权后必填，随请求注入 Authorization） */}
+          <label className="fld">{t('set.apiKey')}</label>
+          <input type="password" defaultValue={localStorage.getItem('ms_api_key') || ''}
+            placeholder={t('set.apiKeyPh')}
+            onChange={(e) => setApiKey(e.target.value)} />
+          <div style={{ fontSize: 11, color: 'var(--ink-400)', marginTop: 4, lineHeight: 1.6 }}>
+            {t('set.apiKeyTip')}
           </div>
 
           {/* P0-3 安全检查清单 */}
