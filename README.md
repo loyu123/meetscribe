@@ -7,6 +7,8 @@ Upload long recordings (up to 4 GB, auto-chunked) and get timestamped, speaker-l
 > **Speech recognition runs fully on-device** (FunASR Paraformer / SenseVoice + CAM++ diarization). Audio never leaves the host.
 > Summaries, Q&A, and search use a configurable **OpenAI-compatible gateway** (local open models or cloud APIs).
 
+中文文档：[README.zh-CN.md](README.zh-CN.md)
+
 ---
 
 ## Features
@@ -97,7 +99,8 @@ meetscribe/
 ├── docker-compose.yml       # CPU / GPU / web profiles
 ├── .env.example             # Production env template
 ├── LICENSE                  # Apache-2.0
-└── README.md
+├── README.md                # English (this file)
+└── README.zh-CN.md          # 中文文档
 ```
 
 ---
