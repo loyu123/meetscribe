@@ -107,6 +107,7 @@ const en: Record<keyof typeof zh, string> = {
   'new.speakers': 'Preset speaker count',
   'new.speakersPh': 'Empty = auto',
   'new.hotword': 'Hotwords (boost proper nouns, comma-separated)',
+  'new.hotLong': '⚠ Overly long hotword lists may cause looping/missing characters (keep under ~20 words). Please trim before starting.',
   'new.hotwordPh': 'e.g. MeetScribe, Project X, North Region',
   'new.denoise': 'Denoise pre-processing (for noisy audio, slower)',
   'new.callback': 'Callback URL (optional, POST on completion)',
@@ -180,6 +181,7 @@ const en: Record<keyof typeof zh, string> = {
   'tp.lowConfWarn': '⚠ {n} low-confidence sentences (orange) — review them in the Quality Center before exporting.',
   'tp.polishFailMsg': 'Polish failed: {err}',
   'tp.spkUnknown': 'Speaker?',
+  'tp.renameTip': 'Click to rename (this meeting; syncs search & export)',
   'tp.editTip': 'Fix this sentence (syncs search & export)',
 
   'job.queue': 'Queued',
@@ -362,6 +364,15 @@ const en: Record<keyof typeof zh, string> = {
   'ab.license': 'License',
   'ab.backend': 'Backend status',
   'ab.local': 'Self-hosted',
+
+  'sec.warnTitle': 'Anonymous mode: ',
+  'sec.warnBody': 'anyone on the same network can access your recordings and transcripts. Before exposing to an office/public network, set ASR_API_KEYS to enable auth (see README "Security").',
+  'sec.checkTitle': 'Security status',
+  'sec.chkAuth': 'API auth',
+  'sec.chkMedia': 'Media signing',
+  'sec.chkGateway': 'AI gateway',
+  'sec.on': 'Enabled',
+  'sec.off': 'Not set',
 
   'gw.section': 'AI service (model gateway)',
   'gw.url': 'Gateway URL',

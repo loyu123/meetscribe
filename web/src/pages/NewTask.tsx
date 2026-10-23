@@ -241,6 +241,7 @@ export default function NewTask() {
           <label>{t('new.hotword')}</label>
           <textarea placeholder={t('new.hotwordPh')} value={p.hotword}
             onChange={(e) => setP({ ...p, hotword: e.target.value })} />
+          {p.hotword.trim().length > 100 && <div className="hot-hint">{t('new.hotLong')}</div>}
         </div>
         <div className="field">
           <div className="switch" onClick={() => setP({ ...p, denoise: !p.denoise })}>

@@ -233,6 +233,7 @@ export default function MeetingDetail() {
         detail ? (
           <TranscriptPane
             id={id} detail={detail} audioRef={audioRef} curMs={curMs} locate={locate}
+            onSpeakersChanged={() => getRecording(id).then((d) => setDetail(d)).catch(() => {})}
             onTurnEdited={(startMs, text) => setDetail((d) => d ? {
               ...d,
               result: d.result ? {

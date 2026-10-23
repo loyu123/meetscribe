@@ -24,7 +24,7 @@ export function testGateway(): Promise<{ ok: boolean; models: string[] }> {
   return postJSON<{ ok: boolean; models: string[] }>('/settings/test')
 }
 
-/** 系统信息（用户菜单信息条 / 关于弹层） */
+/** 系统信息（用户菜单信息条 / 关于弹层 / 安全引导） */
 export interface SystemInfo {
   version: string
   brand: string
@@ -32,6 +32,10 @@ export interface SystemInfo {
   recordings: number
   storage_bytes: number
   status: string
+  /** 安全配置状态（P0-3），旧版后端可能不返回 */
+  auth_configured?: boolean
+  media_sign_enabled?: boolean
+  gateway_configured?: boolean
 }
 
 export function getSystemInfo(): Promise<SystemInfo> {

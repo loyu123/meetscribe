@@ -44,6 +44,7 @@ import runtime_settings
 
 config.ensure_dirs()
 store.init_db()
+store.ai_job_cleanup_stale()  # 重启后清理残留的 processing 纪要/润色任务（P0-1）
 search.init_search_db()
 
 app = Flask(__name__)
@@ -498,7 +499,67 @@ def edit_turn(rid):
     except Exception:  # noqa: BLE001
         pass
     POLISH_JOBS.pop(rid, None)
+    try:
+        store.ai_job_del("polish", rid, "")  # 旧润色结果基于已修改的转写，一并作废（P0-1）
+    except Exception:  # noqa: BLE001
+        pass
     return jsonify({"ok": True, "segments_updated": n})
+
+
+@app.post("/api/v1/recordings/<rid>/speakers/rename")
+def rename_speaker(rid):
+    """说话人重命名（P1-1）：改 result JSON 的 speakers[].label，同步全文与检索索引。
+
+    body: {"spk": "1", "label": "张三"}
+    副作用范围：本会议内。导出字幕/纪要溯源/搜索结果均随 result 与索引更新。
+    已生成的旧纪要文本不回改（与 edit_turn 的 stale 策略一致）。
+    """
+    if not _tenant_can_access(rid):
+        return jsonify({"error": "录音不存在"}), 404
+    data = request.get_json(force=True, silent=True) or {}
+    spk = str(data.get("spk", "")).strip()
+    label = (data.get("label") or "").strip()
+    if not spk:
+        return jsonify({"error": "spk 缺失"}), 400
+    if not label:
+        return jsonify({"error": "名称不能为空"}), 400
+    if len(label) > 30:
+        return jsonify({"error": "名称过长（最多 30 字）"}), 400
+
+    job = store.latest_result_job(rid)
+    if not job or not job.get("result_path"):
+        return jsonify({"error": "该录音暂无转写结果"}), 404
+    if job.get("status") not in ("done", "partial"):
+        return jsonify({"error": "转写尚未完成，暂不能编辑"}), 400
+    result = _json(job["result_path"])
+    if not result:
+        return jsonify({"error": "结果文件缺失"}), 404
+
+    speakers = result.get("speakers") or []
+    hit = False
+    for s in speakers:
+        if str(s.get("spk")) == spk:
+            s["label"] = label
+            hit = True
+            break
+    if not hit:
+        return jsonify({"error": "未找到该说话人（可能已被重新转写，请刷新）"}), 404
+
+    # 重写全文（AI 问答基于该字段），与 edit_turn 的组装方式保持一致
+    lm = {x.get("spk"): x.get("label", "说话人") for x in speakers}
+    result["text"] = "\n".join(
+        "%s(%s)：%s" % (lm.get(t.get("spk"), "说话人"), t.get("start", ""), t.get("text", ""))
+        for t in result.get("turns") or []
+    )
+    with open(job["result_path"], "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+
+    # 同步重建检索索引（chunks 携带说话人名，facet 与命中文本随之更新）
+    try:
+        search.index_recording(rid)
+    except Exception:  # noqa: BLE001 索引失败不阻塞重命名
+        pass
+    return jsonify({"ok": True, "speakers": speakers})
 
 
 @app.get("/api/v1/recordings/<rid>/media")
@@ -591,6 +652,10 @@ def system_info():
         "recordings": n,
         "storage_bytes": size,
         "status": "running",
+        # 安全引导（P0-3）：前端据此展示配置状态与警告
+        "auth_configured": bool(config.API_KEY_TENANTS),
+        "media_sign_enabled": bool(config.MEDIA_SIGN_SECRET),
+        "gateway_configured": bool(getattr(config, "GATEWAY_URL", "")),
     })
 
 
@@ -855,9 +920,20 @@ SUMMARY_GROUPS = {}  # summary_id -> [{"title": 主题, "idx": [要点下标...]
 def _polish_worker(rid):
     key = rid
     try:
-        POLISH_JOBS[key] = {"status": "done", "result": rewrite.polish_transcript(rid)}
+        res = rewrite.polish_transcript(rid)
+        POLISH_JOBS[key] = {"status": "done", "result": res}
+        # 写库持久化（P0-1）：重启后结果不丢
+        try:
+            store.ai_job_upsert("polish", rid, "", status="done",
+                                result_json=json.dumps(res, ensure_ascii=False))
+        except Exception:  # noqa: BLE001
+            pass
     except Exception as e:  # noqa: BLE001
         POLISH_JOBS[key] = {"status": "failed", "error": str(e)}
+        try:
+            store.ai_job_upsert("polish", rid, "", status="failed", error=str(e))
+        except Exception:  # noqa: BLE001
+            pass
 
 
 @app.post("/api/v1/recordings/<rid>/polish")
@@ -875,6 +951,10 @@ def gen_polish(rid):
         if st and st["status"] == "processing":
             return jsonify({"status": "processing"})
         POLISH_JOBS[rid] = {"status": "processing"}
+    try:
+        store.ai_job_upsert("polish", rid, "", status="processing")
+    except Exception:  # noqa: BLE001
+        pass
     threading.Thread(target=_polish_worker, args=(rid,), daemon=True).start()
     return jsonify({"status": "processing"})
 
@@ -884,13 +964,26 @@ def get_polish(rid):
     if not _tenant_can_access(rid):
         return jsonify({"status": "not_started"})
     st = POLISH_JOBS.get(rid)
-    if not st or st["status"] == "not_started":
-        return jsonify({"status": "not_started"})
-    if st["status"] == "processing":
+    if st and st["status"] == "processing":
         return jsonify({"status": "processing"})
-    if st["status"] == "failed":
+    if st and st["status"] == "failed":
         return jsonify({"status": "failed", "error": st.get("error")})
-    return jsonify({"status": "done", "result": st["result"]})
+    if st and st["status"] == "done":
+        return jsonify({"status": "done", "result": st["result"]})
+    # 内存无记录（服务重启过）→ 回落数据库（P0-1）
+    db = store.ai_job_get("polish", rid, "")
+    if not db:
+        return jsonify({"status": "not_started"})
+    if db["status"] == "processing":
+        return jsonify({"status": "processing"})
+    if db["status"] == "failed":
+        return jsonify({"status": "failed", "error": db.get("error")})
+    if db["status"] == "done":
+        try:
+            return jsonify({"status": "done", "result": json.loads(db["result_json"] or "null")})
+        except Exception:  # noqa: BLE001
+            return jsonify({"status": "not_started"})
+    return jsonify({"status": "not_started"})
 
 
 # ---------------- 文本总结（FR-19~FR-24，异步） ----------------
@@ -904,8 +997,19 @@ def _summary_worker(rid, template):
         res = summary.summarize(rid, template)
         SUMMARY_JOBS[key] = {"status": "done", "summary_id": res["_id"],
                              "model": res["_model"], "version": res["_version"]}
+        # 写库持久化（P0-1）
+        try:
+            store.ai_job_upsert("summary", rid, template, status="done",
+                                summary_id=res["_id"], model=res["_model"],
+                                version=res["_version"])
+        except Exception:  # noqa: BLE001
+            pass
     except Exception as e:  # noqa: BLE001
         SUMMARY_JOBS[key] = {"status": "failed", "error": str(e)}
+        try:
+            store.ai_job_upsert("summary", rid, template, status="failed", error=str(e))
+        except Exception:  # noqa: BLE001
+            pass
 
 
 @app.post("/api/v1/recordings/<rid>/summary")
@@ -931,6 +1035,10 @@ def gen_summary(rid):
         if store.get_summary(rid, template) and not force:
             return jsonify({"status": "done", "cached": True})
         SUMMARY_JOBS[key] = {"status": "processing"}
+    try:
+        store.ai_job_upsert("summary", rid, template, status="processing")
+    except Exception:  # noqa: BLE001
+        pass
     threading.Thread(target=_summary_worker, args=(rid, template), daemon=True).start()
     return jsonify({"status": "processing"})
 
@@ -947,6 +1055,13 @@ def get_summary(rid):
     # force 重生成失败时优先暴露 failed，而不是把 DB 里的旧纪要伪装成 done
     if st and st["status"] == "failed":
         return jsonify({"status": "failed", "error": st.get("error")})
+    # 内存无记录（服务重启过）→ 回落 ai_jobs 表（P0-1）
+    if not st:
+        db = store.ai_job_get("summary", rid, template)
+        if db and db["status"] == "processing":
+            return jsonify({"status": "processing"})
+        if db and db["status"] == "failed":
+            return jsonify({"status": "failed", "error": db.get("error")})
     s = store.get_summary(rid, template)
     if not s:
         return jsonify({"status": "not_started"})

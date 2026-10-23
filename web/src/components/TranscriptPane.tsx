@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getRecording, postPolish, getPolish, editTurn } from '../api/recordings'
+import { getRecording, postPolish, getPolish, editTurn, renameSpeaker } from '../api/recordings'
 import type { RecordingDetailResponse, Result, Turn } from '../api/types'
 import { t } from '../i18n'
 
@@ -13,14 +13,17 @@ interface Props {
   curMs: number
   locate: number
   onTurnEdited?: (startMs: number, text: string) => void
+  onSpeakersChanged?: () => void
 }
 
 /** 逐句转写面板：嵌入会议详情页第一个页签（转写前置，见概念图 v6 方案一） */
-export default function TranscriptPane({ id, detail, audioRef, curMs, locate, onTurnEdited }: Props) {
+export default function TranscriptPane({ id, detail, audioRef, curMs, locate, onTurnEdited, onSpeakersChanged }: Props) {
   const [smooth, setSmooth] = useState<Result | null>(null)
   const [view, setView] = useState<View>('orig')
   const [polish, setPolish] = useState<{ status: string; result?: Result; error?: string }>({ status: 'not_started' })
   const [edit, setEdit] = useState<{ i: number; val: string } | null>(null)
+  const [renaming, setRenaming] = useState<{ spk: string; val: string } | null>(null)
+  const [renamingBusy, setRenamingBusy] = useState(false)
   const timer = useRef<number | null>(null)
 
   const result = detail.result
@@ -66,6 +69,29 @@ export default function TranscriptPane({ id, detail, audioRef, curMs, locate, on
     a.play().catch(() => {})
   }
 
+  // P1-1：说话人重命名（本会议内生效，后端同步全文与检索索引）
+  const labelOf = (spk: string | number): string =>
+    result?.speakers?.find((s) => String(s.spk) === String(spk))?.label ?? t('tp.spkUnknown')
+
+  const doRename = async () => {
+    if (!renaming) return
+    const val = renaming.val.trim()
+    if (!val) { setRenaming(null); return }
+    const cur = labelOf(renaming.spk)
+    if (val === cur) { setRenaming(null); return }
+    setRenamingBusy(true)
+    try {
+      const r = await renameSpeaker(id, renaming.spk, val)
+      if (r.error) { alert(t('c.saveFailed', { err: r.error })) }
+      else onSpeakersChanged?.()
+    } catch (e) {
+      alert(t('c.saveFailed', { err: String(e instanceof Error ? e.message : e) }))
+    } finally {
+      setRenamingBusy(false)
+      setRenaming(null)
+    }
+  }
+
   if (!result) {
     return <div className="empty">{t('tp.empty')}</div>
   }
@@ -107,7 +133,31 @@ export default function TranscriptPane({ id, detail, audioRef, curMs, locate, on
             className={'turn' + (view === 'orig' && i === cur ? ' cur' : '') + (view === 'orig' && badTurn(tu) ? ' bad' : '')}
             onClick={() => { if (edit?.i !== i) seek(tu) }}>
             <div className="lab" style={{ color: colorOf(tu.spk) }}>
-              {result.speakers?.find((s) => String(s.spk) === String(tu.spk))?.label ?? t('tp.spkUnknown')}
+              {view === 'orig' && renaming && String(renaming.spk) === String(tu.spk) ? (
+                <span className="spk-ren" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    autoFocus
+                    value={renaming.val}
+                    maxLength={30}
+                    disabled={renamingBusy}
+                    onChange={(e) => setRenaming({ ...renaming, val: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') doRename()
+                      if (e.key === 'Escape') setRenaming(null)
+                    }}
+                  />
+                  <span className="ok" title={t('c.save')} onClick={doRename}>{renamingBusy ? '…' : '✓'}</span>
+                  <span className="cc" onClick={() => setRenaming(null)}>✕</span>
+                </span>
+              ) : (
+                <span
+                  className={view === 'orig' ? 'spk-name' : ''}
+                  title={view === 'orig' ? t('tp.renameTip') : undefined}
+                  onClick={view === 'orig' ? (e) => { e.stopPropagation(); setRenaming({ spk: String(tu.spk), val: labelOf(tu.spk) }) } : undefined}
+                >
+                  {labelOf(tu.spk)}
+                </span>
+              )}
               <span className="ts">{tu.start}</span>
             </div>
             {view === 'orig' && edit?.i === i ? (

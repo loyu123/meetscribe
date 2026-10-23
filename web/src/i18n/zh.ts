@@ -111,6 +111,7 @@ const zh = {
   'new.speakers': '预设说话人数',
   'new.speakersPh': '留空=自动',
   'new.hotword': '热词（提升专有名词识别，逗号分隔）',
+  'new.hotLong': '⚠ 词表过长可能引起循环/丢字等副作用（建议保持在 20 个词以内），请精简后再开始转写。',
   'new.hotwordPh': '例如：聆语会议, 星舰计划, 华北区',
   'new.denoise': '降噪前处理（嘈杂环境开启，会增加耗时）',
   'new.callback': '回调地址（可选，处理完成后 POST 通知）',
@@ -186,6 +187,7 @@ const zh = {
   'tp.lowConfWarn': '⚠ 本录音 {n} 个低置信度句子（橙色标记），建议先到「质量中心」确认后再导出。',
   'tp.polishFailMsg': '润色失败：{err}',
   'tp.spkUnknown': '说话人?',
+  'tp.renameTip': '点击重命名（本会议内生效，同步检索与导出）',
   'tp.editTip': '人工修正此句（同步检索与导出）',
 
   // 进度页
@@ -379,6 +381,14 @@ const zh = {
   'ab.local': '本地部署',
 
   // AI 网关设置
+  'sec.warnTitle': '当前为匿名模式：',
+  'sec.warnBody': '同一网络内的任何人都可以访问你的录音与转写。若部署到办公室或公网，请设置环境变量 ASR_API_KEYS 开启鉴权（详见 README「安全须知」）。',
+  'sec.checkTitle': '安全状态',
+  'sec.chkAuth': 'API 鉴权',
+  'sec.chkMedia': '媒体下载签名',
+  'sec.chkGateway': 'AI 网关',
+  'sec.on': '已启用',
+  'sec.off': '未配置',
   'gw.section': 'AI 服务（模型网关）',
   'gw.url': '网关地址',
   'gw.tokenKeep': '已配置 {masked}，留空不修改',

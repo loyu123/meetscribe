@@ -4,6 +4,7 @@ import {
   getRecordings, getStats, deleteRecording, restoreRecording,
   batchDelete, batchMoveFolder, getFolders,
 } from '../api/recordings'
+import { getSystemInfo } from '../api/settings'
 import type { Recording, Stats } from '../api/types'
 import type { FolderItem } from '../api/recordings'
 import { fmtDuration, fmtBytes, fmtTime, statusLabel, statusClass, recStatus, recProgress, folderColor } from '../utils/format'
@@ -22,6 +23,7 @@ export default function Home() {
 
   const [recs, setRecs] = useState<Recording[] | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
+  const [sysSec, setSysSec] = useState<{ auth_configured: boolean } | null>(null)
   const [folders, setFolders] = useState<FolderItem[]>([])
   const [err, setErr] = useState<string | null>(null)
   const [sel, setSel] = useState<string[]>([])
@@ -35,6 +37,7 @@ export default function Home() {
       .catch((e) => setErr(String(e instanceof Error ? e.message : e)))
     if (!trash) {
       getStats().then(setStats).catch(() => {})
+      getSystemInfo().then((s) => setSysSec({ auth_configured: s.auth_configured ?? false })).catch(() => {})
       getFolders().then(setFolders).catch(() => {})
     }
   }
@@ -102,6 +105,14 @@ export default function Home() {
   return (
     <div>
       <h1 className="page-head">{title}{batch && !trash ? <span className="st part" style={{ marginLeft: 10 }}>{t('top.batch')}</span> : null}</h1>
+
+      {/* P0-3 安全引导：未配置鉴权时在工作台显著提示 */}
+      {!trash && sysSec && !sysSec.auth_configured && (
+        <div className="sec-warn">
+          <span>🔓</span>
+          <span><b>{t('sec.warnTitle')}</b>{t('sec.warnBody')}</span>
+        </div>
+      )}
 
       {err && (
         <div className="callout warn" style={{ background: 'var(--red-50)', borderColor: '#f6c9c5', color: '#b02a22' }}>

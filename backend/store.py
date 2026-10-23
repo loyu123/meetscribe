@@ -121,6 +121,19 @@ CREATE TABLE IF NOT EXISTS summary_edits (
   after_text TEXT,
   created_at TEXT
 );
+CREATE TABLE IF NOT EXISTS ai_jobs (
+  kind TEXT NOT NULL,            -- 'summary' | 'polish'
+  recording_id TEXT NOT NULL,
+  template TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL,          -- processing / done / failed
+  error TEXT,
+  result_json TEXT,              -- polish 完成结果（重启后不丢）
+  summary_id TEXT,
+  model TEXT,
+  version TEXT,
+  updated_at TEXT,
+  PRIMARY KEY (kind, recording_id, template)
+);
 CREATE INDEX IF NOT EXISTS idx_chunks_job ON chunks(job_id);
 CREATE INDEX IF NOT EXISTS idx_segments_job ON segments(job_id);
 """
@@ -770,6 +783,52 @@ def mark_summaries_stale(rid):
     """FR-24：转写重新完成后，将该录音已有摘要标记为失效（基于旧转写）。"""
     with conn() as c:
         c.execute("UPDATE summaries SET stale=1 WHERE recording_id=?", (rid,))
+
+
+# ---------------- ai_jobs（纪要/润色任务状态持久化，重启不丢） ----------------
+def ai_job_upsert(kind, rid, template="", **fields):
+    """写入/更新一条 AI 任务状态。fields 可含 status/error/result_json/summary_id/model/version。"""
+    with conn() as c:
+        c.execute(
+            "INSERT INTO ai_jobs(kind,recording_id,template,status,error,result_json,"
+            "summary_id,model,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(kind,recording_id,template) DO UPDATE SET "
+            "status=excluded.status,error=excluded.error,result_json=excluded.result_json,"
+            "summary_id=excluded.summary_id,model=excluded.model,version=excluded.version,"
+            "updated_at=excluded.updated_at",
+            (kind, rid, template, fields.get("status", "processing"),
+             fields.get("error"), fields.get("result_json"),
+             fields.get("summary_id"), fields.get("model"), fields.get("version"), now()),
+        )
+
+
+def ai_job_get(kind, rid, template=""):
+    with conn() as c:
+        r = c.execute(
+            "SELECT * FROM ai_jobs WHERE kind=? AND recording_id=? AND template=?",
+            (kind, rid, template),
+        ).fetchone()
+        return dict(r) if r else None
+
+
+def ai_job_del(kind, rid, template=""):
+    with conn() as c:
+        c.execute("DELETE FROM ai_jobs WHERE kind=? AND recording_id=? AND template=?",
+                  (kind, rid, template))
+
+
+def ai_job_cleanup_stale(max_hours=6):
+    """启动时调用：把残留的 processing 任务标记为 failed（服务重启即中断）。"""
+    cutoff = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - max_hours * 3600))
+    with conn() as c:
+        n = c.execute(
+            "UPDATE ai_jobs SET status='failed', error='服务重启导致任务中断，请重新生成', "
+            "updated_at=? WHERE status='processing' AND updated_at < ?",
+            (now(), cutoff),
+        ).rowcount
+        # 更保守兜底：最近 6 小时内启动却仍在 processing 的（多半也是重启残留），保留 processing
+        # 让前端继续轮询几次后再人工重试；超过 6 小时的必然是僵尸。
+    return n
 
 
 def get_summary(rid, template=None):

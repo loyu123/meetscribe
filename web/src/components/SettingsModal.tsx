@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { loadSettings, saveSettings, type AppSettings } from '../constants'
-import { getGateway, saveGateway, testGateway, type GatewaySettings } from '../api/settings'
+import { getGateway, saveGateway, testGateway, getSystemInfo, type GatewaySettings, type SystemInfo } from '../api/settings'
 import { t, useLang } from '../i18n'
 
 export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const [s, setS] = useState<AppSettings>(() => loadSettings())
   const [lang, setLang] = useLang()
   const [gw, setGw] = useState<GatewaySettings | null>(null)
+  const [sys, setSys] = useState<SystemInfo | null>(null)
   const [url, setUrl] = useState('')
   const [token, setToken] = useState('')
   const [llm, setLlm] = useState('')
@@ -24,6 +25,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
       setEmbed(g.embed_model)
       setRerank(g.rerank_model)
     }).catch((e) => setGwMsg({ ok: false, text: t('c.loadFailed', { err: String(e instanceof Error ? e.message : e) }) }))
+    getSystemInfo().then(setSys).catch(() => {})
   }, [])
 
   const saveGw = async () => {
@@ -78,7 +80,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           </select>
 
           <label className="fld">{t('gw.section')}</label>
-          <input type="text" value={url} placeholder="http://127.0.0.1:9997/v1"
+          <input type="text" value={url} placeholder="http://192.168.8.174:18300/v1"
             onChange={(e) => setUrl(e.target.value)} />
           <input type="password" value={token} style={{ marginTop: 7 }}
             placeholder={gw?.token_set ? t('gw.tokenKeep', { masked: gw.gateway_token_masked }) : t('gw.tokenPh')}
@@ -135,6 +137,19 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           <div style={{ fontSize: 12, color: 'var(--ink-500)', lineHeight: 1.8 }}>
             {t('set.quotaInfo')}
           </div>
+
+          {/* P0-3 安全检查清单 */}
+          <label className="fld">{t('sec.checkTitle')}</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            <span className={'sec-chip ' + (sys?.auth_configured ? 'ok' : 'off')}>🔒 {t('sec.chkAuth')} · {sys?.auth_configured ? t('sec.on') : t('sec.off')}</span>
+            <span className={'sec-chip ' + (sys?.media_sign_enabled ? 'ok' : 'off')}>🎧 {t('sec.chkMedia')} · {sys?.media_sign_enabled ? t('sec.on') : t('sec.off')}</span>
+            <span className={'sec-chip ' + (gw?.gateway_url ? 'ok' : 'off')}>☁ {t('sec.chkGateway')} · {gw?.gateway_url ? t('sec.on') : t('sec.off')}</span>
+          </div>
+          {sys && !sys.auth_configured && (
+            <div style={{ fontSize: 11, color: 'var(--orange)', marginTop: 5, lineHeight: 1.6 }}>
+              {t('sec.warnTitle')}{t('sec.warnBody')}
+            </div>
+          )}
 
           <div className="m-tip" style={{ marginTop: 12, fontSize: 11, color: 'var(--ink-400)' }}>
             {t('set.tip')}

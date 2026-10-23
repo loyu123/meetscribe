@@ -123,6 +123,16 @@ export async function editTurn(rid: string, startMs: number, text: string): Prom
   return (await r.json()) as { ok: boolean; error?: string }
 }
 
+// 说话人重命名（P1-1）：本会议内生效，后端同步全文与检索索引
+export async function renameSpeaker(rid: string, spk: string | number, label: string): Promise<{ ok: boolean; error?: string }> {
+  const r = await fetch(`/api/v1/recordings/${rid}/speakers/rename`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ spk, label }),
+  })
+  return (await r.json()) as { ok: boolean; error?: string }
+}
+
 export const getJob = (jid: string) =>
   getJSON<JobDetailResponse>(`/jobs/${jid}`)
 

@@ -567,6 +567,28 @@ body {
 .modal .gwrow .fld { margin-top: 8px; }
 .modal .gwacts { display: flex; gap: 8px; margin-top: 10px; }
 
+/* ================= v1.1：说话人重命名（P1-1） ================= */
+.turn .lab .spk-name { cursor: pointer; border-bottom: 1px dashed currentColor; opacity: .92; }
+.turn .lab .spk-name:hover { opacity: 1; text-decoration: underline; }
+.turn .lab .spk-ren { display: inline-flex; align-items: center; gap: 5px; }
+.turn .lab .spk-ren input { width: 110px; border: 1px solid var(--primary, #2b5cff); border-radius: 6px;
+  padding: 1px 6px; font-size: 11px; font-family: inherit; outline: none; background: #fff; color: var(--ink-900); }
+.turn .lab .spk-ren .ok { cursor: pointer; font-weight: 700; }
+.turn .lab .spk-ren .cc { cursor: pointer; opacity: .6; }
+
+/* ================= v1.1：安全引导（P0-3） ================= */
+.sec-warn { display: flex; align-items: flex-start; gap: 8px; background: var(--orange-50, #fdf3e4);
+  border: 1px solid #f2d9ac; color: #9a6106; border-radius: var(--r-8); padding: 9px 12px;
+  font-size: 12px; line-height: 1.7; margin-bottom: 12px; }
+.sec-warn b { color: #9a6106; }
+.sec-chip { display: inline-flex; align-items: center; gap: 5px; border-radius: var(--r-full);
+  padding: 2px 10px; font-size: 10.5px; font-weight: 600; }
+.sec-chip.ok { background: var(--green-50, #e7f6f0); color: var(--green); }
+.sec-chip.off { background: var(--orange-50, #fdf3e4); color: var(--orange); }
+
+/* ================= v1.1：热词长度提示（P1-5） ================= */
+.hot-hint { font-size: 10.5px; color: var(--orange); margin-top: 3px; }
+
 
 /* ================= 改进 v4：AI 面板收起 ================= */
 .askrail .fold { margin-left: 6px; width: 24px; height: 24px; border: 1px solid var(--line); border-radius: var(--r-8);
