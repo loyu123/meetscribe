@@ -249,11 +249,20 @@ def _scope_indexed(allowed_rids):
 
 # ---------------- 检索（FR-25 / FR-27 / FR-29） ----------------
 def _tokenize(text):
+    """分词（阶段 B1）：拉丁/数字按词；中文按 2-gram（单字串保留单字）。
+
+    相比逐字切分，bigram 让「张伟」「合同」等专名/词组成为独立 token，
+    BM25 的 idf/短语区分度显著提升；查询与索引两侧共用本函数，天然一致。
+    注意：改动后需全量重建索引（search_chunks.search_text 分词口径变化）。
+    """
     text = (text or "").lower()
     toks = re.findall(r"[a-z0-9]+", text)
-    for ch in text:
-        if "\u4e00" <= ch <= "\u9fff":
-            toks.append(ch)
+    cjk_runs = re.findall(r"[\u4e00-\u9fff]+", text)
+    for run in cjk_runs:
+        if len(run) == 1:
+            toks.append(run)
+        else:
+            toks.extend(run[i:i + 2] for i in range(len(run) - 1))
     return toks
 
 

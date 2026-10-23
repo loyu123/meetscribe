@@ -617,6 +617,18 @@ body {
 .sresult .sres-ft { display: flex; align-items: center; gap: 10px; margin-top: 7px; font-size: 11px; color: var(--ink-400); }
 .sresult .sres-ft .jump { color: var(--primary-600); font-weight: 600; cursor: pointer; }
 
+/* B2：搜索结果按会议聚合 */
+.sgroup { border: 1px solid var(--line); border-radius: var(--r-12); background: var(--bg-50, #f7f8fa);
+  padding: 10px 12px; margin-bottom: 14px; }
+.sgroup .sg-head { display: flex; align-items: center; gap: 10px; margin: 2px 2px 10px; font-size: 13px; flex-wrap: wrap; }
+.sgroup .sg-head .nm { font-weight: 700; color: var(--ink-900); cursor: pointer; }
+.sgroup .sg-head .nm:hover { color: var(--primary-600); }
+.sgroup .sg-head .dt { color: var(--ink-400); font-size: 11px; }
+.sgroup .sg-head .meta { color: var(--ink-500); font-size: 11px; }
+.sgroup .sg-head .chip { margin-left: auto; }
+.sgroup .sresult { margin-bottom: 8px; }
+.sgroup .sresult:last-child { margin-bottom: 2px; }
+
 /* ================= 改进 v5：纪要重构 ================= */
 /* 改进 v7 方案 D：白底大字 + 关键词高亮 */
 .oneline { position: relative; background: #fff; border: 1px solid var(--line); border-radius: var(--r-16);

@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { searchApi, reindexAll, reindexStatus, type SearchResponse, type SearchFilters } from '../api/search'
+import { searchApi, reindexAll, reindexStatus, type SearchHit, type SearchResponse, type SearchFilters } from '../api/search'
 import { fmtDuration } from '../utils/format'
 import { t, type TKey } from '../i18n'
 
@@ -69,6 +69,16 @@ export default function Search() {
   const totalPages = data ? Math.ceil(data.total / data.page_size) : 1
   const unindexed = data?.unindexed ?? 0
   const needsIndex = !!data && (data.facets.indexed_total === 0 || unindexed > 0)
+  // B2：同一会议的多条命中聚合展示，组内保留时间戳跳播
+  const groups = useMemo(() => {
+    const m = new Map<string, { file: string; date: string; hits: SearchHit[] }>()
+    for (const h of data?.results ?? []) {
+      let g = m.get(h.recording_id)
+      if (!g) { g = { file: h.filename, date: h.date, hits: [] }; m.set(h.recording_id, g) }
+      g.hits.push(h)
+    }
+    return [...m.entries()]
+  }, [data])
 
   // ===== 初始态：居中大搜索框 =====
   if (!submitted) {
@@ -171,19 +181,29 @@ export default function Search() {
             ))}
           </div>
 
-          {data.results.map((h, i) => (
-            <div key={i} className="sresult" onClick={() => nav('/m/' + h.recording_id + '?tab=transcript')}>
-              <div className="r1">
-                <span className="nm">{h.filename}</span>
-                <span className="spk">{h.speaker}</span>
-                <span className="dt">{h.date}</span>
-                <span className="score">{t('se.relevance', { p: Math.round(h.score * 100) })}</span>
+          {groups.map(([rid, g]) => (
+            <div key={rid} className="sgroup">
+              <div className="sg-head">
+                <span className="nm">{g.file}</span>
+                <span className="dt">{g.date}</span>
+                <span className="meta">{t('se.hitInMeeting', { n: g.hits.length })}</span>
+                <span className="chip k" style={{ cursor: 'pointer' }}
+                  onClick={() => nav('/m/' + rid + '?tab=transcript')}>{t('se.openMeeting')}</span>
               </div>
-              <div className="snip" dangerouslySetInnerHTML={{ __html: h.snippet }} />
-              <div className="sres-ft">
-                <span className="jump">▶ {fmtDuration(h.start_ms)} {t('se.jumpTo')}</span>
-                <span>{t('se.clickHint')}</span>
-              </div>
+              {g.hits.map((h, i) => (
+                <div key={i} className="sresult" onClick={() => nav('/m/' + rid + '?tab=transcript&t=' + h.start_ms)}>
+                  <div className="r1">
+                    <span className="spk">{h.speaker}</span>
+                    <span className="dt">{h.date}</span>
+                    <span className="score">{t('se.relevance', { p: Math.round(h.score * 100) })}</span>
+                  </div>
+                  <div className="snip" dangerouslySetInnerHTML={{ __html: h.snippet }} />
+                  <div className="sres-ft">
+                    <span className="jump">▶ {fmtDuration(h.start_ms)} {t('se.jumpTo')}</span>
+                    <span>{t('se.clickHint')}</span>
+                  </div>
+                </div>
+              ))}
             </div>
           ))}
 

@@ -137,6 +137,9 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           <label className="fld">{t('set.hotwords')}</label>
           <textarea rows={2} value={s.hotwords} placeholder={t('new.hotwordPh')}
             onChange={(e) => setS({ ...s, hotwords: e.target.value })} />
+          <div style={{ fontSize: 11, color: 'var(--ink-400)', marginTop: 4, lineHeight: 1.6 }}>
+            {t('set.hotwordsTip')}
+          </div>
 
           <label className="fld">{t('set.speakers')}</label>
           <select value={s.speakers} onChange={(e) => setS({ ...s, speakers: e.target.value })}>
