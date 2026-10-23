@@ -1,0 +1,78 @@
+# MeetScribe 一键部署（P0-4）
+#
+# CPU 版：
+#   docker compose up -d
+# GPU 版（需 nvidia-container-toolkit 与 NVIDIA 驱动）：
+#   docker compose --profile gpu up -d
+#
+# 首次启动会从 modelscope 下载模型到 ./models 卷（约数 GB，视模型而定），
+# 之后重启不再重复下载。数据（含 SQLite）持久化在 ./data。
+services:
+  backend:
+    build:
+      context: ./backend
+      args:
+        # GPU 版构建请改为: nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04
+        BASE: python:3.11-slim
+        # GPU 版构建请改为: https://download.pytorch.org/whl/cu128
+        TORCH_INDEX: https://download.pytorch.org/whl/cpu
+    image: meetscribe-backend
+    ports:
+      - "5000:5000"
+    environment:
+      # ---- AI 网关（纪要/问答/检索/embedding 必需）----
+      ASR_GATEWAY_URL: ${ASR_GATEWAY_URL:-http://192.168.8.174:18300/v1}
+      ASR_GATEWAY_TOKEN: ${ASR_GATEWAY_TOKEN:-}
+      # ---- 安全（公网部署务必配置）----
+      ASR_API_KEYS: ${ASR_API_KEYS:-}
+      ASR_MEDIA_SIGN_SECRET: ${ASR_MEDIA_SIGN_SECRET:-}
+      # ---- 推理资源 ----
+      ASR_BACKEND: ${ASR_BACKEND:-paraformer}   # paraformer | sensevoice
+      ASR_WORKERS: ${ASR_WORKERS:-1}
+    volumes:
+      - ./data:/data
+      - ./models:/models
+    restart: unless-stopped
+
+  # GPU 版：`docker compose --profile gpu up -d`（与 CPU 版共用 data/models 卷，二选一启动）
+  backend-gpu:
+    profiles: ["gpu"]
+    build:
+      context: ./backend
+      args:
+        BASE: nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04
+        TORCH_INDEX: https://download.pytorch.org/whl/cu128
+    image: meetscribe-backend:gpu
+    ports:
+      - "5000:5000"
+    environment:
+      ASR_GATEWAY_URL: ${ASR_GATEWAY_URL:-http://192.168.8.174:18300/v1}
+      ASR_GATEWAY_TOKEN: ${ASR_GATEWAY_TOKEN:-}
+      ASR_API_KEYS: ${ASR_API_KEYS:-}
+      ASR_MEDIA_SIGN_SECRET: ${ASR_MEDIA_SIGN_SECRET:-}
+      ASR_BACKEND: ${ASR_BACKEND:-paraformer}
+      ASR_WORKERS: ${ASR_WORKERS:-1}
+    volumes:
+      - ./data:/data
+      - ./models:/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  # 前端静态服务（可选）：`docker compose --profile web up -d`
+  web:
+    profiles: ["web"]
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    image: meetscribe-web
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped

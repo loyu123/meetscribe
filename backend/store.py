@@ -438,17 +438,20 @@ def list_recordings(limit=100, tenant_id=None, deleted=False):
         return [dict(x) for x in rows]
 
 
-def list_recording_ids(tenant_id=None):
-    """返回某租户可见的录音 id 集合（供检索按租户隔离过滤，不含回收站）。"""
+def list_recording_ids(tenant_id=None, folder=None):
+    """返回某租户可见的录音 id 集合（供检索按租户隔离过滤，不含回收站）。
+
+    P1-4：folder 传 '' 表示未归档，传具体名表示该文件夹；None 不过滤。
+    """
     with conn() as c:
+        sql, params = "SELECT id FROM recordings WHERE deleted_at IS NULL", []
         if tenant_id is not None:
-            rows = c.execute(
-                "SELECT id FROM recordings WHERE (tenant_id=? OR tenant_id='') "
-                "AND deleted_at IS NULL",
-                (tenant_id,)).fetchall()
-        else:
-            rows = c.execute(
-                "SELECT id FROM recordings WHERE deleted_at IS NULL").fetchall()
+            sql += " AND (tenant_id=? OR tenant_id='')"
+            params.append(tenant_id)
+        if folder is not None:
+            sql += " AND COALESCE(folder,'')=?"
+            params.append(folder)
+        rows = c.execute(sql, params).fetchall()
         return {r["id"] for r in rows}
 
 

@@ -160,6 +160,38 @@ def _chat_json(system_content, user_content):
     raise ValueError("LLM 未返回 JSON(空响应)")
 
 
+# ---------------- P1-2 长会议纪要质量增强 ----------------
+_COARSE_SYS = ('你是会议总结助手。下面是一份超长会议转写的各片段开头/结尾节选。'
+               '请输出全局粗摘要 JSON：{"overall_topic":"会议主线主题",'
+               '"key_threads":["贯穿会议的主要线索/议题(3~8条)"],'
+               '"conclusions":["会议后段出现的结论/决定"]}。仅基于内容，不编造。')
+
+
+def _coarse_digest(chunks):
+    """每块取头尾节选拼成全局视角输入（控制 token 量，会议结论多在后段）。"""
+    parts = []
+    for i, c in enumerate(chunks):
+        head = c[:800]
+        tail = c[-400:] if len(c) > 1200 else ""
+        parts.append("[片段 %d]\n%s%s" % (i + 1, head, ("\n…\n" + tail) if tail else ""))
+    return "\n\n".join(parts)
+
+
+def _validate_summary(data, template):
+    """输出结构校验（P1-2）：必填字段缺失/类型错误返回问题描述，正常返回 None。"""
+    if not isinstance(data, dict):
+        return "输出必须是 JSON 对象"
+    if isinstance(data.get("sections"), dict):  # 自定义模板
+        return None if data["sections"] else "sections 不能为空"
+    need = ["one_line", "points"] if template == "memo" else ["title", "one_line", "points"]
+    missing = [k for k in need if k not in data]
+    if missing:
+        return "缺少字段: %s" % ",".join(missing)
+    if not isinstance(data.get("points"), list):
+        return "points 必须是数组"
+    return None
+
+
 def summarize(recording_id, template="meeting"):
     """生成并持久化摘要。返回附带 _id/_model/_version 的内容字典。"""
     rec = store.get_recording(recording_id)
@@ -185,15 +217,37 @@ def summarize(recording_id, template="meeting"):
     chunks = _chunk_context(segs)
     if len(chunks) == 1:
         data = _chat_json(sys_p, "会议转写如下：\n" + chunks[0])
-    else:  # FR-20 分段摘要 + 层级归并（分块并行调用 LLM，总耗时≈最慢一块）
+    else:  # FR-20 + P1-2：全局粗摘要 → 分块并行摘要 → 以粗摘要为上下文归并，减少重复与主线丢失
         with ThreadPoolExecutor(max_workers=min(4, len(chunks))) as ex:
             partials = list(ex.map(
                 lambda c: _chat_json(sys_p, "会议转写如下：\n" + c), chunks))
+        try:
+            coarse = _chat_json(_COARSE_SYS, _coarse_digest(chunks))
+        except Exception as e:  # noqa: BLE001 粗摘要失败不阻塞，退回纯归并
+            print("[summary] 全局粗摘要失败，退回纯归并: %r" % e, flush=True)
+            coarse = None
         merge_sys = ("你是会议总结助手。下面是多段会议转写的分段摘要(JSON数组)，"
                      "请合并去重，输出最终统一的结构化摘要(同一JSON结构)，"
                      "保留每个要点的说话人与时间戳；仅基于提供内容，不编造。")
-        data = _chat_json(merge_sys + "\n" + _schema_for(template),
-                          "分段摘要：\n" + json.dumps(partials, ensure_ascii=False))
+        merge_user = "分段摘要：\n" + json.dumps(partials, ensure_ascii=False)
+        if coarse:
+            merge_user = ("全局粗摘要（仅供把握会议主线，不得引入分段摘要中未出现的具体信息）：\n"
+                          + json.dumps(coarse, ensure_ascii=False) + "\n\n" + merge_user)
+        data = _chat_json(merge_sys + "\n" + _schema_for(template), merge_user)
+
+    # P1-2 输出校验：必填字段缺失时尝试一次补全重试；仍失败保留原结果（FR-24 不阻塞）
+    err = _validate_summary(data, template)
+    if err:
+        print("[summary] 结构校验未通过(%s)，尝试补全重试" % err, flush=True)
+        try:
+            fixed = _chat_json(
+                sys_p + "\n结构校验问题：%s。请补全所有必填字段后重新输出完整 JSON"
+                        "（保留原内容，只补结构），不要任何解释。" % err,
+                "你上次的输出：\n" + json.dumps(data, ensure_ascii=False))
+            if not _validate_summary(fixed, template):
+                data = fixed
+        except Exception as e:  # noqa: BLE001
+            print("[summary] 结构补全重试失败: %r" % e, flush=True)
 
     sid = store.save_summary(recording_id, job["id"], template,
                              config.GATEWAY_LLM_MODEL, SUMMARY_VERSION, data,

@@ -112,6 +112,26 @@ pip install torch --index-url https://download.pytorch.org/whl/cu121
 
 生产环境建议用 systemd / supervisor 托管，示例见 `backend` 目录注释。
 
+### 1b. 一键 Docker 启动（推荐，P0-4）
+
+```bash
+# CPU 版（后端 API，http://localhost:5000）
+docker compose up -d
+
+# GPU 版（CUDA 12.8，需 nvidia-container-toolkit）
+docker compose --profile gpu up -d
+
+# 连同前端一起启动（前端 http://localhost:8080，已反代 /api）
+docker compose --profile web --profile gpu up -d
+```
+
+说明：
+- 数据（上传/音频/结果/SQLite）持久化在 `./data`，模型缓存在 `./models`——首次启动会自动从
+  modelscope 下载模型（数 GB），之后重启不再重复下载。
+- AI 网关与安全配置通过 `.env` 或环境变量注入：`ASR_GATEWAY_URL` / `ASR_GATEWAY_TOKEN` /
+  `ASR_API_KEYS` / `ASR_MEDIA_SIGN_SECRET`（公网部署务必配置后两项，见「安全须知」）。
+- 依赖版本已按实测组合锁定（见 `backend/requirements.txt`），升级请整组回归验证。
+
 ### 2. 启动前端
 
 ```bash

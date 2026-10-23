@@ -65,6 +65,7 @@ export default function MeetingDetail() {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [copied, setCopied] = useState(false)
+  const [copyTsOk, setCopyTsOk] = useState(false)
   const timer = useRef<number | null>(null)
 
   const startPoll = (t: Tpl) => {
@@ -147,6 +148,15 @@ export default function MeetingDetail() {
     }
   }
 
+  // P1-3：一键复制带时间戳的纯文本转写（result.text 即「说话人(时间) 内容」格式）
+  const copyTranscript = () => {
+    const text = detail?.result?.text
+    if (text) {
+      navigator.clipboard?.writeText(text)
+      setCopyTsOk(true); setTimeout(() => setCopyTsOk(false), 1500)
+    }
+  }
+
   const saveEdit = () => {
     if (sum && sum.status === 'done') {
       const before = PlainText(activeTpl, sum.content)
@@ -201,6 +211,9 @@ export default function MeetingDetail() {
           <span className="export">
             <a href={`/api/v1/recordings/${id}/subtitle?fmt=srt`} download>{t('dt.exportSrt')}</a>
             <a href={`/api/v1/recordings/${id}/subtitle?fmt=vtt`} download>{t('dt.exportVtt')}</a>
+            <a href={`/api/v1/recordings/${id}/export?fmt=txt`} download>{t('dt.exportTxt')}</a>
+            <a href={`/api/v1/recordings/${id}/export?fmt=md`} download>{t('dt.exportMd')}</a>
+            <span className="lnk" style={{ cursor: 'pointer' }} onClick={copyTranscript}>{copyTsOk ? t('dt.copied') : t('dt.copyTs')}</span>
           </span>
         </div>
       )}

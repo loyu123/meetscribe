@@ -734,6 +734,110 @@ def rec_subtitle(rid):
                     headers={"Content-Disposition": "attachment; filename=\"%s.%s\"" % (rid, fmt)})
 
 
+# ---------------- 导出增强（P1-3）：带时间戳 TXT / Markdown 纪要 ----------------
+def _ms_ts(ms):
+    ms = max(0, int(ms or 0))
+    h, m, s = ms // 3600000, (ms % 3600000) // 60000, (ms % 60000) // 1000
+    return "%02d:%02d:%02d" % (h, m, s) if h else "%02d:%02d" % (m, s)
+
+
+def _build_txt(result):
+    """带时间戳的纯文本转写：`说话人 [mm:ss] 内容`（P1-3）。"""
+    spk_map = {s["spk"]: s["label"] for s in result.get("speakers", [])}
+    return "\n".join(
+        "%s [%s] %s" % (spk_map.get(t["spk"], "说话人?"), _ms_ts(t.get("start_ms")), t.get("text", ""))
+        for t in result.get("turns", [])
+    )
+
+
+def _md_points(points):
+    out = []
+    for p in points or []:
+        src = "（%s%s）" % (p.get("speaker", ""), (" " + p["timestamp"]) if p.get("timestamp") else "") \
+            if (p.get("speaker") or p.get("timestamp")) else ""
+        out.append("- %s%s" % (p.get("content", ""), src))
+    return out
+
+
+def _summary_to_markdown(content, template, title):
+    """把纪要 JSON 转成 Markdown（标题/一句话/要点/行动项/风险/待办，均带时间戳溯源）。"""
+    c = content or {}
+    lines = ["# %s" % (c.get("title") or title)]
+    if c.get("one_line"):
+        lines.append("\n> %s" % c["one_line"])
+    if c.get("owner"):
+        lines.append("\n**备忘人**：%s" % c["owner"])
+    if c.get("attendees"):
+        lines.append("\n**参与人**：%s" % "、".join(c["attendees"]))
+    sections = c.get("sections")
+    if isinstance(sections, dict):  # 自定义模板：sections 分组
+        for sec, pts in sections.items():
+            lines.append("\n## %s" % sec)
+            lines.extend(_md_points(pts))
+    elif template == "memo":
+        lines.append("\n## 要点")
+        lines.extend(_md_points(c.get("points")))
+        if c.get("todos"):
+            lines.append("\n## 待办")
+            lines.extend("-[ ] %s%s%s" % (a.get("task", ""),
+                                         " @%s" % a["owner"] if a.get("owner") else "",
+                                         "（截止 %s）" % a["deadline"] if a.get("deadline") else "")
+                         for a in c["todos"])
+    else:
+        lines.append("\n## 讨论要点")
+        lines.extend(_md_points(c.get("points")))
+        if c.get("action_items"):
+            lines.append("\n## 行动项")
+            lines.extend("-[ ] %s%s%s" % (a.get("task", ""),
+                                         " @%s" % a["owner"] if a.get("owner") else "",
+                                         "（截止 %s）" % a["deadline"] if a.get("deadline") else "")
+                         for a in c["action_items"])
+        if c.get("risks"):
+            lines.append("\n## 风险")
+            lines.extend("- %s%s" % (r.get("content", ""),
+                                     " [%s]" % r["level"] if r.get("level") else "")
+                         for r in c["risks"])
+    return "\n".join(lines) + "\n"
+
+
+def _transcript_markdown(rec, result):
+    lines = ["# %s" % rec.get("filename", rec.get("id", "")), "",
+             "> 转写全文（带时间戳，尚未生成纪要）", ""]
+    lines.extend(_build_txt(result).split("\n"))
+    return "\n".join(lines) + "\n"
+
+
+@app.get("/api/v1/recordings/<rid>/export")
+def rec_export(rid):
+    """P1-3 导出：fmt=txt 带时间戳纯文本转写；fmt=md Markdown 纪要（无纪要时回退转写全文）。"""
+    if not _tenant_can_access(rid):
+        return jsonify({"error": "录音不存在"}), 404
+    rec = store.get_recording(rid)
+    if not rec:
+        return jsonify({"error": "录音不存在"}), 404
+    job = store.get_job_by_recording(rid)
+    if not job or not job.get("result_path"):
+        return jsonify({"error": "该录音暂无转写结果"}), 400
+    result = _json(job["result_path"])
+    if not result:
+        return jsonify({"error": "结果缺失"}), 400
+    fmt = (request.args.get("fmt") or request.args.get("format") or "txt").lower()
+    if fmt == "md":
+        s = store.get_summary(rid)
+        if s and s.get("content") and s.get("status") == "done":
+            body = _summary_to_markdown(s["content"], s.get("template") or "meeting",
+                                        rec.get("filename") or rid)
+        else:
+            body = _transcript_markdown(rec, result)
+        mime, ext = "text/markdown", "md"
+    else:
+        fmt = "txt"
+        body = _build_txt(result)
+        mime, ext = "text/plain", "txt"
+    return Response(body, mimetype=mime,
+                    headers={"Content-Disposition": "attachment; filename=\"%s.%s\"" % (rid, ext)})
+
+
 # ---------------- 历史语义检索（FR-25~FR-32） ----------------
 @app.post("/api/v1/search")
 def search_api():
@@ -747,8 +851,16 @@ def search_api():
     }
     # FR-31 检索层租户隔离：非管理员密钥仅能在自身租户（含共享）录音内检索
     t = _current_tenant()
-    if t and t != "*":
-        filters["recording_ids"] = list(store.list_recording_ids(t))
+    tenant_ids = store.list_recording_ids(t) if (t and t != "*") else None
+    # P1-4 文件夹过滤：'' = 未归档；与租户范围求交集，双重防护越权
+    folder = data.get("folder")
+    if folder is not None:
+        ids = store.list_recording_ids(t, folder=str(folder))
+        if tenant_ids is not None:
+            ids &= tenant_ids
+        filters["recording_ids"] = list(ids)
+    elif tenant_ids is not None:
+        filters["recording_ids"] = list(tenant_ids)
     page = int(data.get("page", 1) or 1)
     page_size = min(int(data.get("page_size", 10) or 10), 100)
     return jsonify(search.search(q, filters, page, page_size))

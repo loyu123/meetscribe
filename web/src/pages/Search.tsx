@@ -122,6 +122,21 @@ export default function Search() {
             <option key={s.speaker} value={s.speaker}>{s.speaker}（{s.count}）</option>
           ))}
         </select>
+        <span className="lb">{t('se.folder')}</span>
+        <select
+          value={filters.folder === undefined ? '' : filters.folder === '' ? '__none__' : filters.folder}
+          onChange={(e) => {
+            const v = e.target.value
+            setFilters((f) => ({ ...f, folder: v === '' ? undefined : v === '__none__' ? '' : v }))
+          }}>
+          <option value="">{t('se.allFolders')}</option>
+          {(data?.facets.folders ?? []).filter((x) => x.folder !== '').map((x) => (
+            <option key={x.folder} value={x.folder}>{x.folder}（{x.count}）</option>
+          ))}
+          {(data?.facets.folders ?? []).some((x) => x.folder === '') && (
+            <option value="__none__">{t('se.unfiled')}（{(data?.facets.folders ?? []).find((x) => x.folder === '')?.count ?? 0}）</option>
+          )}
+        </select>
         <span className="lb">{t('se.date')}</span>
         <input type="date" value={filters.date_from ?? ''} onChange={(e) => setFilters({ ...filters, date_from: e.target.value || undefined })} />
         <span className="lb">{t('se.to')}</span>
@@ -172,7 +187,19 @@ export default function Search() {
             </div>
           ))}
 
-          {data.results.length === 0 && <div className="empty">{t('se.empty')}</div>}
+          {data.results.length === 0 && (
+            <div className="empty">
+              {t('se.empty')}
+              {(filters.speaker || filters.date_from || filters.date_to || filters.folder !== undefined) && (
+                <div style={{ marginTop: 8 }}>
+                  <span className="chip k" style={{ cursor: 'pointer' }} onClick={() => setFilters({})}>{t('se.clearFilter')}</span>
+                </div>
+              )}
+              <div className="tip" style={{ marginTop: 8 }}>
+                {unindexed > 0 ? t('se.emptyUnindexed', { n: unindexed }) : t('se.emptyHint')}
+              </div>
+            </div>
+          )}
 
           {totalPages > 1 && (
             <div className="pager">

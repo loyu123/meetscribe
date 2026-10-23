@@ -13,6 +13,7 @@ export interface SearchHit {
 export interface SearchFacets {
   speakers: { speaker: string; count: number }[]
   recordings: { id: string; filename: string }[]
+  folders?: { folder: string; count: number }[] // P1-4 文件夹 facet（'' = 未归档）
   indexed_total: number
 }
 export interface SearchResponse {
@@ -40,6 +41,7 @@ export interface SearchFilters {
   date_to?: string
   speaker?: string
   recording_id?: string
+  folder?: string // P1-4 文件夹过滤（'' = 未归档）
 }
 
 export const searchApi = (q: string, filters: SearchFilters = {}, page = 1, size = 10) =>

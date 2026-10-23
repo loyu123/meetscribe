@@ -429,16 +429,23 @@ def _facets(allowed_rids=None):
                 "SELECT speaker, COUNT(*) n FROM search_chunks WHERE recording_id IN (%s) "
                 "GROUP BY speaker ORDER BY n DESC" % ph, list(allowed_rids)).fetchall()
             recs = c.execute(
-                "SELECT DISTINCT sc.recording_id, r.filename FROM search_chunks sc "
+                "SELECT DISTINCT sc.recording_id, r.filename, r.folder FROM search_chunks sc "
                 "LEFT JOIN recordings r ON r.id=sc.recording_id "
                 "WHERE sc.recording_id IN (%s)" % ph, list(allowed_rids)).fetchall()
         else:
             spk = c.execute("SELECT speaker, COUNT(*) n FROM search_chunks GROUP BY speaker ORDER BY n DESC").fetchall()
-            recs = c.execute("SELECT DISTINCT sc.recording_id, r.filename FROM search_chunks sc "
+            recs = c.execute("SELECT DISTINCT sc.recording_id, r.filename, r.folder FROM search_chunks sc "
                              "LEFT JOIN recordings r ON r.id=sc.recording_id").fetchall()
+    # P1-4：文件夹 facet（按录音数计），'' 归类为「未归档」
+    folder_counts = {}
+    for x in recs:
+        f = x["folder"] or ""
+        folder_counts[f] = folder_counts.get(f, 0) + 1
     return {
         "speakers": [{"speaker": x["speaker"], "count": x["n"]} for x in spk],
         "recordings": [{"id": x["recording_id"], "filename": x["filename"]} for x in recs],
+        "folders": [{"folder": f or "", "count": n} for f, n in
+                    sorted(folder_counts.items(), key=lambda kv: -kv[1])],
         "indexed_total": sum(x["n"] for x in spk),
     }
 
