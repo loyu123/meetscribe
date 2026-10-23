@@ -251,7 +251,7 @@ body {
 .viewtabs .vt.on { color: var(--ink-900); font-weight: 600; border-bottom: 2px solid var(--primary); }
 .viewtabs .spacer { flex: 1; }
 .turns { display: flex; flex-direction: column; }
-.turn { display: flex; gap: 12px; padding: 10px 12px; border-radius: var(--r-8); cursor: pointer; transition: background var(--t-base) var(--ease); }
+.turn { display: flex; flex-wrap: wrap; gap: 12px; padding: 10px 12px; border-radius: var(--r-8); cursor: pointer; transition: background var(--t-base) var(--ease); }
 .turn:hover { background: var(--bg); }
 .turn.cur { background: var(--primary-50); }
 .turn.bad { box-shadow: inset 3px 0 0 var(--orange); }
@@ -571,13 +571,16 @@ body {
 /* ================= v1.1：说话人重命名（P1-1） ================= */
 .turn .lab .spk-name { cursor: pointer; border-bottom: 1px dashed currentColor; opacity: .92; }
 .turn .lab .spk-name:hover { opacity: 1; text-decoration: underline; }
-.turn .lab .spk-ren { display: inline-flex; align-items: center; gap: 5px; }
-.turn .lab .spk-ren input { width: 110px; border: 1px solid var(--primary, #2b5cff); border-radius: 6px;
-  padding: 1px 6px; font-size: 11px; font-family: inherit; outline: none; background: #fff; color: var(--ink-900); }
-.turn .lab .spk-ren .ok { cursor: pointer; font-weight: 700; }
-.turn .lab .spk-ren .cc { cursor: pointer; opacity: .6; }
-.turn .lab .spk-ren .vp-save { display: inline-flex; align-items: center; gap: 3px;
-  font-size: 10.5px; color: var(--ink-500); cursor: pointer; white-space: nowrap; }
+/* 重命名/存声纹：说话人标签列仅 58px，面板独立成整行放在本句上方 */
+.turn .spk-ren { order: -1; flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  background: #fff; border: 1px solid var(--line); border-radius: var(--r-8);
+  box-shadow: var(--sh-1); padding: 8px 10px; margin-bottom: 2px; }
+.turn .spk-ren input[type=text] { width: 120px; border: 1px solid var(--primary, #2b5cff); border-radius: 6px;
+  padding: 3px 7px; font-size: 12px; font-family: inherit; outline: none; background: #fff; color: var(--ink-900); }
+.turn .spk-ren .ok { cursor: pointer; font-weight: 700; }
+.turn .spk-ren .cc { cursor: pointer; opacity: .6; }
+.turn .spk-ren .vp-save { flex: 1 1 100%; display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--ink-500); cursor: pointer; }
 .vp-item { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line, #e5e8ef);
   border-radius: var(--r-8, 8px); padding: 6px 10px; margin-bottom: 6px; font-size: 12.5px; }
 

@@ -22,7 +22,8 @@ export default function TranscriptPane({ id, detail, audioRef, curMs, locate, on
   const [view, setView] = useState<View>('orig')
   const [polish, setPolish] = useState<{ status: string; result?: Result; error?: string }>({ status: 'not_started' })
   const [edit, setEdit] = useState<{ i: number; val: string } | null>(null)
-  const [renaming, setRenaming] = useState<{ spk: string; val: string; vp?: boolean } | null>(null)
+  // i：正在编辑的那一句（同一说话人会出现多句，必须按句绑定，否则每句都会弹出编辑面板）
+  const [renaming, setRenaming] = useState<{ i: number; spk: string; val: string; vp?: boolean } | null>(null)
   const [renamingBusy, setRenamingBusy] = useState(false)
   const timer = useRef<number | null>(null)
 
@@ -138,38 +139,39 @@ export default function TranscriptPane({ id, detail, audioRef, curMs, locate, on
       <div className="turns">
         {turns.map((tu, i) => (
           <div key={i}
-            className={'turn' + (view === 'orig' && i === cur ? ' cur' : '') + (view === 'orig' && badTurn(tu) ? ' bad' : '')}
-            onClick={() => { if (edit?.i !== i) seek(tu) }}>
+            className={'turn' + (view === 'orig' && i === cur ? ' cur' : '')
+              + (view === 'orig' && badTurn(tu) ? ' bad' : '')}
+            onClick={() => { if (renaming) { setRenaming(null); return } if (edit?.i !== i) seek(tu) }}>
+            {/* 重命名面板独立成行（说话人标签列只有 58px，塞进去会压住正文） */}
+            {view === 'orig' && renaming && renaming.i === i && (
+              <span className="spk-ren" onClick={(e) => e.stopPropagation()}>
+                <input
+                  autoFocus
+                  value={renaming.val}
+                  maxLength={30}
+                  disabled={renamingBusy}
+                  onChange={(e) => setRenaming({ ...renaming, val: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') doRename()
+                    if (e.key === 'Escape') setRenaming(null)
+                  }}
+                />
+                <span className="ok" title={t('c.save')} onClick={doRename}>{renamingBusy ? '…' : '✓'}</span>
+                <span className="cc" onClick={() => setRenaming(null)}>✕</span>
+                <label className="vp-save" onClick={(e) => e.stopPropagation()}>
+                  <input type="checkbox" checked={!!renaming.vp} onChange={(e) => setRenaming({ ...renaming, vp: e.target.checked })} />
+                  {t('tp.vpSave')}
+                </label>
+              </span>
+            )}
             <div className="lab" style={{ color: colorOf(tu.spk) }}>
-              {view === 'orig' && renaming && String(renaming.spk) === String(tu.spk) ? (
-                <span className="spk-ren" onClick={(e) => e.stopPropagation()}>
-                  <input
-                    autoFocus
-                    value={renaming.val}
-                    maxLength={30}
-                    disabled={renamingBusy}
-                    onChange={(e) => setRenaming({ ...renaming, val: e.target.value })}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') doRename()
-                      if (e.key === 'Escape') setRenaming(null)
-                    }}
-                  />
-                  <span className="ok" title={t('c.save')} onClick={doRename}>{renamingBusy ? '…' : '✓'}</span>
-                  <span className="cc" onClick={() => setRenaming(null)}>✕</span>
-                  <label className="vp-save" onClick={(e) => e.stopPropagation()}>
-                    <input type="checkbox" checked={!!renaming.vp} onChange={(e) => setRenaming({ ...renaming, vp: e.target.checked })} />
-                    {t('tp.vpSave')}
-                  </label>
-                </span>
-              ) : (
-                <span
-                  className={view === 'orig' ? 'spk-name' : ''}
-                  title={view === 'orig' ? t('tp.renameTip') : undefined}
-                  onClick={view === 'orig' ? (e) => { e.stopPropagation(); setRenaming({ spk: String(tu.spk), val: labelOf(tu.spk) }) } : undefined}
-                >
-                  {labelOf(tu.spk)}
-                </span>
-              )}
+              <span
+                className={view === 'orig' ? 'spk-name' : ''}
+                title={view === 'orig' ? t('tp.renameTip') : undefined}
+                onClick={view === 'orig' ? (e) => { e.stopPropagation(); setRenaming({ i, spk: String(tu.spk), val: labelOf(tu.spk) }) } : undefined}
+              >
+                {labelOf(tu.spk)}
+              </span>
               <span className="ts">{tu.start}</span>
             </div>
             {view === 'orig' && edit?.i === i ? (
