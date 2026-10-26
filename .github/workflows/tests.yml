@@ -57,11 +57,8 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: web/package-lock.json
-      # 已知发现：react-router <7.18 存在 high 通告，修复需 v7 大版本迁移；
-      # 迁移完成前保持报告模式（不阻断），迁移后删除 continue-on-error 恢复阻断。
-      - name: npm audit (high+, report-only)
+      - name: npm audit (high+)
         working-directory: web
-        continue-on-error: true
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           npm audit --audit-level=high

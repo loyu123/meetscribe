@@ -10,6 +10,12 @@ All notable changes to MeetScribe. 中文为主，每个版本首行附英文摘
 - **产品定位：仅桌面端（PC 浏览器）。** 移动端停止专项投入；现有响应式样式保留但不再维护。
   / Desktop-only product: mobile is not officially supported (responsive styles kept, unmaintained).
 
+### Fixed
+
+- 依赖升级修复全部已知 npm 安全通告：react-router-dom 6→7.18.4（high），
+  vite 5→8.3.5 + @vitejs/plugin-react 6（esbuild 开发服务器通告）。
+  **npm audit 恢复阻断模式**（`--audit-level=high`）。
+
 ## [1.4.0] - 2026-10-26
 
 > Desktop polish & release hardening / 桌面端体验收口、可复现性加固与正式发版。
