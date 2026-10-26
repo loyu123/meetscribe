@@ -35,3 +35,33 @@ jobs:
         run: |
           npm ci
           npm run build
+
+  # 2.2 依赖安全扫描：高危/已知 CVE 阻断合并。
+  # 说明：CI 环境只装测试链路依赖（无 torch/funasr 等 GPU 运行时依赖），
+  # 全量审计可在有网环境执行：pip-audit -r backend/requirements.txt
+  deps-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test deps + pip-audit
+        run: |
+          python -m pip install -U pip setuptools
+          pip install -r backend/requirements-dev.txt pip-audit
+      - name: pip-audit (strict)
+        run: pip-audit --strict
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      # 已知发现：react-router <7.18 存在 high 通告，修复需 v7 大版本迁移；
+      # 迁移完成前保持报告模式（不阻断），迁移后删除 continue-on-error 恢复阻断。
+      - name: npm audit (high+, report-only)
+        working-directory: web
+        continue-on-error: true
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm audit --audit-level=high

@@ -1,7 +1,9 @@
 # Test-only dependencies (used by CI, ~30s, no GPU/model downloads).
 # engine (torch/funasr/soundfile) is lazily imported, so tests never load it.
-pytest>=8,<9
+pytest>=9,<10
 flask>=3.0,<4
 numpy>=2.0,<3
 requests>=2.28,<3
 python-docx>=1.1,<2
+# Required by pip-audit --strict (CVE fixes live in 4.2.x, Python>=3.11 only)
+filelock>=4.2.1; python_version >= "3.11"
