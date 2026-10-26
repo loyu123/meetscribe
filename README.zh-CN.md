@@ -216,6 +216,38 @@ cd backend && pip install -r requirements-dev.txt && python -m pytest tests/ -q
 
 ---
 
+## 备份与迁移
+
+全部会议数据都在一个目录里——备份它，产品就能搬到任何机器。
+
+| 路径 | 内容 | 是否备份 |
+|------|------|----------|
+| `./data`（`ASR_DATA_DIR`） | SQLite（`asr.db` 及 `-wal`/`-shm`）、`uploads/`、`audio/`、`results/`、`runtime_settings.json` | **必须** |
+| `./models` | FunASR 模型权重（数 GB） | 否——首次启动自动重新下载 |
+| `.env` | API Key / 密钥（如配置） | 是——与备份放在一起 |
+
+**建议先停后端**（`docker compose stop backend`，本地运行则 Ctrl+C），然后：
+
+```bash
+# Linux / macOS / WSL
+bash scripts/backup.sh ./data ./backups 14        # 打包 data/ 为 tar.gz，保留最近 14 份
+```
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -File scripts\backup.ps1   # 打包 data/ 为 zip，保留最近 14 份
+```
+
+- 若服务必须保持运行且装有 `sqlite3`，`backup.sh` 会额外输出一致性数据库快照
+  `backups/asr-<时间>.db`；恢复时用它替换包内 `asr.db`，并删除 `asr.db-wal` / `asr.db-shm`。
+- 若使用了"服务运行中"的备份，恢复后遇到数据异常，删除 `asr.db-wal` / `asr.db-shm`
+  再启动即可（WAL 会自动重建）。
+
+**恢复：** 停后端 → 用备份覆盖 `./data` → 启动。
+**迁移到新机器：** 安装 MeetScribe（或拷贝仓库）→ 恢复 `./data` 与 `.env` → 启动，模型权重首次启动自动重新下载。
+
+---
+
 ## 工具与评测
 
 `backend/tools/` 提供 CLI 转写、说话人日志导出、CER 评测，以及公开数据集（AMI / AISHELL-4）相关脚本。用法见 `backend/tools/README.md`。
@@ -228,7 +260,8 @@ cd backend && pip install -r requirements-dev.txt && python -m pytest tests/ -q
 - 租户日配额为软限制，极端并发下存在检查竞态（单机自用一般无影响）。
 - 尚未提供完整账号登录 / 会话体系；多租户隔离依赖 API Key（录音、搜索、纪要、模板已隔离）。
 - ASR 模型以中文场景为主，英文或中英混合需自行验证效果。
-- 若已升级中文 bigram 分词，请在搜索页执行一次全量重建索引，使 BM25 与新分词口径一致。
+- 变更分词版本后，搜索页会自动提示重建索引（旧索引仍可检索，但专名/编号召回会下降）。
+- 界面按桌面浏览器优化；移动端为非官方支持（响应式样式保留，但不再专项维护）。
 
 ---
 

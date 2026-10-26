@@ -216,6 +216,40 @@ Full list lives in `backend/config.py`. Common ones:
 
 ---
 
+## Backup & migration
+
+All meeting data lives in one directory — back it up and the product can move anywhere.
+
+| Path | Content | Backup? |
+|------|---------|---------|
+| `./data` (`ASR_DATA_DIR`) | SQLite (`asr.db` + `-wal`/`-shm`), `uploads/`, `audio/`, `results/`, `runtime_settings.json` | **Yes** |
+| `./models` | FunASR model weights (GBs) | No — re-downloaded on first start |
+| `.env` | API keys / secrets (if used) | Yes — keep together with backups |
+
+**Recommended: stop the backend first** (`docker compose stop backend`, or Ctrl+C for local runs), then:
+
+```bash
+# Linux / macOS / WSL
+bash scripts/backup.sh ./data ./backups 14        # tar.gz of data/, keeps the last 14
+```
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -File scripts\backup.ps1   # zip of data/, keeps the last 14
+```
+
+- If the service must stay running and `sqlite3` is installed, `backup.sh` also writes a
+  consistent database snapshot `backups/asr-<ts>.db`; on restore use it to replace the
+  `asr.db` inside the archive and delete `asr.db-wal` / `asr.db-shm`.
+- If you restored from a backup taken while the service was running and see data issues,
+  delete `asr.db-wal` / `asr.db-shm` and restart (WAL is rebuilt automatically).
+
+**Restore:** stop backend → restore/overwrite `./data` → start backend.
+**Migrate to a new machine:** install MeetScribe (or copy the repo), restore `./data`
+plus `.env`, start — model weights are re-downloaded automatically on first start.
+
+---
+
 ## Tools & evaluation
 
 `backend/tools/` includes CLI transcription, diarization dumps, CER evaluation, and helpers for public datasets (AMI / AISHELL-4). See `backend/tools/README.md`.
@@ -229,6 +263,7 @@ Full list lives in `backend/config.py`. Common ones:
 - Full account login/sessions are not built yet; multi-tenant isolation is via API keys (recordings, search, minutes, templates).
 - ASR models are primarily tuned for Chinese; English / mixed speech may need extra validation.
 - After changing search tokenization (Chinese bigrams), run a full reindex from the Search page so BM25 matches the new token style.
+- The UI is optimized for desktop browsers; mobile is not officially supported (responsive styles exist but receive no dedicated maintenance).
 
 ---
 
